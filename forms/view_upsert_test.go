@@ -82,7 +82,8 @@ func TestViewUpsertValidate(t *testing.T) {
 				"sql": "select 1;delete from _admins",
 				"listRule": "missing = '123'"
 			}`,
-			[]string{"name", "sql"},
+			// SQL will not return err, because everything after the semicolon is dismissed
+			[]string{"name"},
 		},
 		{
 			`{

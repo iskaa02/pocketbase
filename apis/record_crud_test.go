@@ -851,7 +851,7 @@ func TestRecordCrudCreate(t *testing.T) {
 			Name:           "guest submit in public collection",
 			Method:         http.MethodPost,
 			Url:            "/api/collections/demo2/records",
-			Body:           strings.NewReader(`{"title":"new"}`),
+			Body:           strings.NewReader(`{"title":"new","active":false}`),
 			ExpectedStatus: 200,
 			ExpectedContent: []string{
 				`"id":`,

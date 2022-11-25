@@ -98,7 +98,7 @@ func TestDeleteViews(t *testing.T) {
 		model       *models.View
 		expectError bool
 	}{
-		{c0, true},
+		{c0, false},
 		{c1, false},
 		{c2, false},
 	}

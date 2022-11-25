@@ -157,11 +157,11 @@ func TestNewRecordFromNullStringMap(t *testing.T) {
 	}{
 		{
 			models.CollectionTypeBase,
-			`{"collectionId":"","collectionName":"test","created":"2022-01-01 10:00:00.123Z","field1":"test","field2":"","field3":true,"field4":123.123,"field5":"test1","field6":["test"],"id":"test_id","updated":"2022-01-01 10:00:00.456Z"}`,
+			`{"collectionId":"","collectionName":"test","created":"2022-01-01 10:00:00.123Z","field1":"test","field2":null,"field3":true,"field4":123.123,"field5":"test1","field6":["test"],"id":"test_id","updated":"2022-01-01 10:00:00.456Z"}`,
 		},
 		{
 			models.CollectionTypeAuth,
-			`{"collectionId":"","collectionName":"test","created":"2022-01-01 10:00:00.123Z","email":"test_email","emailVisibility":true,"field1":"test","field2":"","field3":true,"field4":123.123,"field5":"test1","field6":["test"],"id":"test_id","updated":"2022-01-01 10:00:00.456Z","username":"test_username","verified":false}`,
+			`{"collectionId":"","collectionName":"test","created":"2022-01-01 10:00:00.123Z","email":"test_email","emailVisibility":true,"field1":"test","field2":null,"field3":true,"field4":123.123,"field5":"test1","field6":["test"],"id":"test_id","updated":"2022-01-01 10:00:00.456Z","username":"test_username","verified":false}`,
 		},
 	}
 
@@ -284,11 +284,11 @@ func TestNewRecordsFromNullStringMaps(t *testing.T) {
 	}{
 		{
 			models.CollectionTypeBase,
-			`[{"collectionId":"","collectionName":"test","created":"2022-01-01 10:00:00.123Z","field1":"test","field2":123.123,"field3":"","id":"test_id1","updated":"2022-01-01 10:00:00.456Z"},{"collectionId":"","collectionName":"test","created":"","field1":"","field2":0,"field3":"test","id":"","updated":""}]`,
+			`[{"collectionId":"","collectionName":"test","created":"2022-01-01 10:00:00.123Z","field1":"test","field2":123.123,"field3":null,"id":"test_id1","updated":"2022-01-01 10:00:00.456Z"},{"collectionId":"","collectionName":"test","created":"","field1":null,"field2":null,"field3":"test","id":"","updated":""}]`,
 		},
 		{
 			models.CollectionTypeAuth,
-			`[{"collectionId":"","collectionName":"test","created":"2022-01-01 10:00:00.123Z","email":"test_email","emailVisibility":true,"field1":"test","field2":123.123,"field3":"","id":"test_id1","updated":"2022-01-01 10:00:00.456Z","username":"","verified":false},{"collectionId":"","collectionName":"test","created":"","emailVisibility":false,"field1":"","field2":0,"field3":"test","id":"","updated":"","username":"","verified":false}]`,
+			`[{"collectionId":"","collectionName":"test","created":"2022-01-01 10:00:00.123Z","email":"test_email","emailVisibility":true,"field1":"test","field2":123.123,"field3":null,"id":"test_id1","updated":"2022-01-01 10:00:00.456Z","username":"","verified":false},{"collectionId":"","collectionName":"test","created":"","emailVisibility":false,"field1":null,"field2":null,"field3":"test","id":"","updated":"","username":"","verified":false}]`,
 		},
 	}
 
@@ -500,8 +500,8 @@ func TestRecordSetAndGet(t *testing.T) {
 		t.Fatalf("Expected field1 %q, got %v", "123", m.Get("field1"))
 	}
 
-	if m.Get("field2") != 0.0 {
-		t.Fatalf("Expected field2 %v, got %v", 0.0, m.Get("field2"))
+	if m.Get("field2") != nil {
+		t.Fatalf("Expected field2 %v, got %v", nil, m.Get("field2"))
 	}
 
 	if m.Get("unknown") != 456 {

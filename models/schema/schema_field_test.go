@@ -63,43 +63,43 @@ func TestSchemaFieldColDefinition(t *testing.T) {
 	}{
 		{
 			schema.SchemaField{Type: schema.FieldTypeText, Name: "test"},
-			"TEXT DEFAULT ''",
+			"TEXT",
 		},
 		{
 			schema.SchemaField{Type: schema.FieldTypeNumber, Name: "test"},
-			"REAL DEFAULT 0",
+			"REAL",
 		},
 		{
 			schema.SchemaField{Type: schema.FieldTypeBool, Name: "test"},
-			"BOOLEAN DEFAULT FALSE",
+			"BOOLEAN",
 		},
 		{
 			schema.SchemaField{Type: schema.FieldTypeEmail, Name: "test"},
-			"TEXT DEFAULT ''",
+			"TEXT",
 		},
 		{
 			schema.SchemaField{Type: schema.FieldTypeUrl, Name: "test"},
-			"TEXT DEFAULT ''",
+			"TEXT",
 		},
 		{
 			schema.SchemaField{Type: schema.FieldTypeDate, Name: "test"},
-			"TEXT DEFAULT ''",
+			"TEXT",
 		},
 		{
 			schema.SchemaField{Type: schema.FieldTypeSelect, Name: "test"},
-			"TEXT DEFAULT ''",
+			"TEXT",
 		},
 		{
 			schema.SchemaField{Type: schema.FieldTypeJson, Name: "test"},
-			"JSON DEFAULT NULL",
+			"JSON",
 		},
 		{
 			schema.SchemaField{Type: schema.FieldTypeFile, Name: "test"},
-			"TEXT DEFAULT ''",
+			"TEXT",
 		},
 		{
 			schema.SchemaField{Type: schema.FieldTypeRelation, Name: "test"},
-			"TEXT DEFAULT ''",
+			"TEXT",
 		},
 	}
 
@@ -542,23 +542,23 @@ func TestSchemaFieldPrepareValue(t *testing.T) {
 		{schema.SchemaField{Type: "unknown"}, []int{1, 2, 1}, "[1,2,1]"},
 
 		// text
-		{schema.SchemaField{Type: schema.FieldTypeText}, nil, `""`},
+		{schema.SchemaField{Type: schema.FieldTypeText}, nil, `null`},
 		{schema.SchemaField{Type: schema.FieldTypeText}, "", `""`},
-		{schema.SchemaField{Type: schema.FieldTypeText}, []int{1, 2}, `""`},
+		{schema.SchemaField{Type: schema.FieldTypeText}, []int{1, 2}, `null`},
 		{schema.SchemaField{Type: schema.FieldTypeText}, "test", `"test"`},
 		{schema.SchemaField{Type: schema.FieldTypeText}, 123, `"123"`},
 
 		// email
-		{schema.SchemaField{Type: schema.FieldTypeEmail}, nil, `""`},
+		{schema.SchemaField{Type: schema.FieldTypeEmail}, nil, `null`},
 		{schema.SchemaField{Type: schema.FieldTypeEmail}, "", `""`},
-		{schema.SchemaField{Type: schema.FieldTypeEmail}, []int{1, 2}, `""`},
+		{schema.SchemaField{Type: schema.FieldTypeEmail}, []int{1, 2}, `null`},
 		{schema.SchemaField{Type: schema.FieldTypeEmail}, "test", `"test"`},
 		{schema.SchemaField{Type: schema.FieldTypeEmail}, 123, `"123"`},
 
 		// url
-		{schema.SchemaField{Type: schema.FieldTypeUrl}, nil, `""`},
+		{schema.SchemaField{Type: schema.FieldTypeUrl}, nil, `null`},
 		{schema.SchemaField{Type: schema.FieldTypeUrl}, "", `""`},
-		{schema.SchemaField{Type: schema.FieldTypeUrl}, []int{1, 2}, `""`},
+		{schema.SchemaField{Type: schema.FieldTypeUrl}, []int{1, 2}, `null`},
 		{schema.SchemaField{Type: schema.FieldTypeUrl}, "test", `"test"`},
 		{schema.SchemaField{Type: schema.FieldTypeUrl}, 123, `"123"`},
 
@@ -570,19 +570,19 @@ func TestSchemaFieldPrepareValue(t *testing.T) {
 		{schema.SchemaField{Type: schema.FieldTypeJson}, []int{1, 2, 1}, `[1,2,1]`},
 
 		// number
-		{schema.SchemaField{Type: schema.FieldTypeNumber}, nil, "0"},
-		{schema.SchemaField{Type: schema.FieldTypeNumber}, "", "0"},
-		{schema.SchemaField{Type: schema.FieldTypeNumber}, "test", "0"},
+		{schema.SchemaField{Type: schema.FieldTypeNumber}, nil, "null"},
+		{schema.SchemaField{Type: schema.FieldTypeNumber}, "", "null"},
+		{schema.SchemaField{Type: schema.FieldTypeNumber}, "test", "null"},
 		{schema.SchemaField{Type: schema.FieldTypeNumber}, 1, "1"},
 		{schema.SchemaField{Type: schema.FieldTypeNumber}, 1.5, "1.5"},
 		{schema.SchemaField{Type: schema.FieldTypeNumber}, "1.5", "1.5"},
 
 		// bool
-		{schema.SchemaField{Type: schema.FieldTypeBool}, nil, "false"},
+		{schema.SchemaField{Type: schema.FieldTypeBool}, nil, "null"},
 		{schema.SchemaField{Type: schema.FieldTypeBool}, 1, "true"},
 		{schema.SchemaField{Type: schema.FieldTypeBool}, 0, "false"},
-		{schema.SchemaField{Type: schema.FieldTypeBool}, "", "false"},
-		{schema.SchemaField{Type: schema.FieldTypeBool}, "test", "false"},
+		{schema.SchemaField{Type: schema.FieldTypeBool}, "", "null"},
+		{schema.SchemaField{Type: schema.FieldTypeBool}, "test", "null"},
 		{schema.SchemaField{Type: schema.FieldTypeBool}, "false", "false"},
 		{schema.SchemaField{Type: schema.FieldTypeBool}, "true", "true"},
 		{schema.SchemaField{Type: schema.FieldTypeBool}, false, "false"},

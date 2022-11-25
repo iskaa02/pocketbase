@@ -259,17 +259,35 @@ func (f *SchemaField) PrepareValue(value any) any {
 
 	switch f.Type {
 	case FieldTypeText, FieldTypeEmail, FieldTypeUrl:
-		return value
+		if value != nil {
+			// if the value is uncastable return null
+			val, err := cast.ToStringE(value)
+			if err != nil {
+				return nil
+			}
+			return val
+		}
 	case FieldTypeJson:
 		val, _ := types.ParseJsonRaw(value)
 		return val
 	case FieldTypeNumber:
 		if value != nil {
-			return cast.ToFloat64(value)
+			// if the value is uncastable return null
+			val, err := cast.ToFloat64E(value)
+			if err != nil {
+				return nil
+			}
+			return val
 		}
 	case FieldTypeBool:
+
 		if value != nil {
-			return cast.ToBool(value)
+			// if the value is uncastable return null
+			val, err := cast.ToBoolE(value)
+			if err != nil {
+				return nil
+			}
+			return val
 		}
 	case FieldTypeDate:
 		val, _ := types.ParseDateTime(value)
