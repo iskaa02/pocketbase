@@ -1,10 +1,8 @@
 package core
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"log"
 	"os"
@@ -15,10 +13,10 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/daos"
 	"github.com/pocketbase/pocketbase/models"
+	"github.com/pocketbase/pocketbase/models/settings"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
 	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/mailer"
-	"github.com/pocketbase/pocketbase/tools/security"
 	"github.com/pocketbase/pocketbase/tools/store"
 	"github.com/pocketbase/pocketbase/tools/subscriptions"
 )
@@ -34,15 +32,19 @@ type BaseApp struct {
 
 	// internals
 	cache               *store.Store[any]
-	settings            *Settings
+	settings            *settings.Settings
 	db                  *dbx.DB
 	dao                 *daos.Dao
 	logsDB              *dbx.DB
 	logsDao             *daos.Dao
 	subscriptionsBroker *subscriptions.Broker
 
-	// serve event hooks
-	onBeforeServe *hook.Hook[*ServeEvent]
+	// app event hooks
+	onBeforeBootstrap *hook.Hook[*BootstrapEvent]
+	onAfterBootstrap  *hook.Hook[*BootstrapEvent]
+	onBeforeServe     *hook.Hook[*ServeEvent]
+	onBeforeApiError  *hook.Hook[*ApiErrorEvent]
+	onAfterApiError   *hook.Hook[*ApiErrorEvent]
 
 	// dao event hooks
 	onModelBeforeCreate *hook.Hook[*ModelEvent]
@@ -64,6 +66,9 @@ type BaseApp struct {
 
 	// realtime api event hooks
 	onRealtimeConnectRequest         *hook.Hook[*RealtimeConnectEvent]
+	onRealtimeDisconnectRequest      *hook.Hook[*RealtimeDisconnectEvent]
+	onRealtimeBeforeMessageSend      *hook.Hook[*RealtimeMessageEvent]
+	onRealtimeAfterMessageSend       *hook.Hook[*RealtimeMessageEvent]
 	onRealtimeBeforeSubscribeRequest *hook.Hook[*RealtimeSubscribeEvent]
 	onRealtimeAfterSubscribeRequest  *hook.Hook[*RealtimeSubscribeEvent]
 
@@ -86,13 +91,25 @@ type BaseApp struct {
 	onAdminAfterDeleteRequest  *hook.Hook[*AdminDeleteEvent]
 	onAdminAuthRequest         *hook.Hook[*AdminAuthEvent]
 
-	// user api event hooks
-	onRecordAuthRequest                     *hook.Hook[*RecordAuthEvent]
-	onRecordListExternalAuthsRequest        *hook.Hook[*RecordListExternalAuthsEvent]
-	onRecordBeforeUnlinkExternalAuthRequest *hook.Hook[*RecordUnlinkExternalAuthEvent]
-	onRecordAfterUnlinkExternalAuthRequest  *hook.Hook[*RecordUnlinkExternalAuthEvent]
+	// record auth API event hooks
+	onRecordAuthRequest                       *hook.Hook[*RecordAuthEvent]
+	onRecordBeforeRequestPasswordResetRequest *hook.Hook[*RecordRequestPasswordResetEvent]
+	onRecordAfterRequestPasswordResetRequest  *hook.Hook[*RecordRequestPasswordResetEvent]
+	onRecordBeforeConfirmPasswordResetRequest *hook.Hook[*RecordConfirmPasswordResetEvent]
+	onRecordAfterConfirmPasswordResetRequest  *hook.Hook[*RecordConfirmPasswordResetEvent]
+	onRecordBeforeRequestVerificationRequest  *hook.Hook[*RecordRequestVerificationEvent]
+	onRecordAfterRequestVerificationRequest   *hook.Hook[*RecordRequestVerificationEvent]
+	onRecordBeforeConfirmVerificationRequest  *hook.Hook[*RecordConfirmVerificationEvent]
+	onRecordAfterConfirmVerificationRequest   *hook.Hook[*RecordConfirmVerificationEvent]
+	onRecordBeforeRequestEmailChangeRequest   *hook.Hook[*RecordRequestEmailChangeEvent]
+	onRecordAfterRequestEmailChangeRequest    *hook.Hook[*RecordRequestEmailChangeEvent]
+	onRecordBeforeConfirmEmailChangeRequest   *hook.Hook[*RecordConfirmEmailChangeEvent]
+	onRecordAfterConfirmEmailChangeRequest    *hook.Hook[*RecordConfirmEmailChangeEvent]
+	onRecordListExternalAuthsRequest          *hook.Hook[*RecordListExternalAuthsEvent]
+	onRecordBeforeUnlinkExternalAuthRequest   *hook.Hook[*RecordUnlinkExternalAuthEvent]
+	onRecordAfterUnlinkExternalAuthRequest    *hook.Hook[*RecordUnlinkExternalAuthEvent]
 
-	// record api event hooks
+	// record crud API event hooks
 	onRecordsListRequest        *hook.Hook[*RecordsListEvent]
 	onRecordViewRequest         *hook.Hook[*RecordViewEvent]
 	onRecordBeforeCreateRequest *hook.Hook[*RecordCreateEvent]
@@ -102,7 +119,7 @@ type BaseApp struct {
 	onRecordBeforeDeleteRequest *hook.Hook[*RecordDeleteEvent]
 	onRecordAfterDeleteRequest  *hook.Hook[*RecordDeleteEvent]
 
-	// collection api event hooks
+	// collection API event hooks
 	onCollectionsListRequest         *hook.Hook[*CollectionsListEvent]
 	onCollectionViewRequest          *hook.Hook[*CollectionViewEvent]
 	onCollectionBeforeCreateRequest  *hook.Hook[*CollectionCreateEvent]
@@ -136,11 +153,15 @@ func NewBaseApp(dataDir string, encryptionEnv string, isDebug bool) *BaseApp {
 		isDebug:             isDebug,
 		encryptionEnv:       encryptionEnv,
 		cache:               store.New[any](nil),
-		settings:            NewSettings(),
+		settings:            settings.New(),
 		subscriptionsBroker: subscriptions.NewBroker(),
 
-		// serve event hooks
-		onBeforeServe: &hook.Hook[*ServeEvent]{},
+		// app event hooks
+		onBeforeBootstrap: &hook.Hook[*BootstrapEvent]{},
+		onAfterBootstrap:  &hook.Hook[*BootstrapEvent]{},
+		onBeforeServe:     &hook.Hook[*ServeEvent]{},
+		onBeforeApiError:  &hook.Hook[*ApiErrorEvent]{},
+		onAfterApiError:   &hook.Hook[*ApiErrorEvent]{},
 
 		// dao event hooks
 		onModelBeforeCreate: &hook.Hook[*ModelEvent]{},
@@ -162,6 +183,9 @@ func NewBaseApp(dataDir string, encryptionEnv string, isDebug bool) *BaseApp {
 
 		// realtime API event hooks
 		onRealtimeConnectRequest:         &hook.Hook[*RealtimeConnectEvent]{},
+		onRealtimeDisconnectRequest:      &hook.Hook[*RealtimeDisconnectEvent]{},
+		onRealtimeBeforeMessageSend:      &hook.Hook[*RealtimeMessageEvent]{},
+		onRealtimeAfterMessageSend:       &hook.Hook[*RealtimeMessageEvent]{},
 		onRealtimeBeforeSubscribeRequest: &hook.Hook[*RealtimeSubscribeEvent]{},
 		onRealtimeAfterSubscribeRequest:  &hook.Hook[*RealtimeSubscribeEvent]{},
 
@@ -184,13 +208,25 @@ func NewBaseApp(dataDir string, encryptionEnv string, isDebug bool) *BaseApp {
 		onAdminAfterDeleteRequest:  &hook.Hook[*AdminDeleteEvent]{},
 		onAdminAuthRequest:         &hook.Hook[*AdminAuthEvent]{},
 
-		// user API event hooks
-		onRecordAuthRequest:                     &hook.Hook[*RecordAuthEvent]{},
-		onRecordListExternalAuthsRequest:        &hook.Hook[*RecordListExternalAuthsEvent]{},
-		onRecordBeforeUnlinkExternalAuthRequest: &hook.Hook[*RecordUnlinkExternalAuthEvent]{},
-		onRecordAfterUnlinkExternalAuthRequest:  &hook.Hook[*RecordUnlinkExternalAuthEvent]{},
+		// record auth API event hooks
+		onRecordAuthRequest:                       &hook.Hook[*RecordAuthEvent]{},
+		onRecordBeforeRequestPasswordResetRequest: &hook.Hook[*RecordRequestPasswordResetEvent]{},
+		onRecordAfterRequestPasswordResetRequest:  &hook.Hook[*RecordRequestPasswordResetEvent]{},
+		onRecordBeforeConfirmPasswordResetRequest: &hook.Hook[*RecordConfirmPasswordResetEvent]{},
+		onRecordAfterConfirmPasswordResetRequest:  &hook.Hook[*RecordConfirmPasswordResetEvent]{},
+		onRecordBeforeRequestVerificationRequest:  &hook.Hook[*RecordRequestVerificationEvent]{},
+		onRecordAfterRequestVerificationRequest:   &hook.Hook[*RecordRequestVerificationEvent]{},
+		onRecordBeforeConfirmVerificationRequest:  &hook.Hook[*RecordConfirmVerificationEvent]{},
+		onRecordAfterConfirmVerificationRequest:   &hook.Hook[*RecordConfirmVerificationEvent]{},
+		onRecordBeforeRequestEmailChangeRequest:   &hook.Hook[*RecordRequestEmailChangeEvent]{},
+		onRecordAfterRequestEmailChangeRequest:    &hook.Hook[*RecordRequestEmailChangeEvent]{},
+		onRecordBeforeConfirmEmailChangeRequest:   &hook.Hook[*RecordConfirmEmailChangeEvent]{},
+		onRecordAfterConfirmEmailChangeRequest:    &hook.Hook[*RecordConfirmEmailChangeEvent]{},
+		onRecordListExternalAuthsRequest:          &hook.Hook[*RecordListExternalAuthsEvent]{},
+		onRecordBeforeUnlinkExternalAuthRequest:   &hook.Hook[*RecordUnlinkExternalAuthEvent]{},
+		onRecordAfterUnlinkExternalAuthRequest:    &hook.Hook[*RecordUnlinkExternalAuthEvent]{},
 
-		// record API event hooks
+		// record crud API event hooks
 		onRecordsListRequest:        &hook.Hook[*RecordsListEvent]{},
 		onRecordViewRequest:         &hook.Hook[*RecordViewEvent]{},
 		onRecordBeforeCreateRequest: &hook.Hook[*RecordCreateEvent]{},
@@ -232,6 +268,12 @@ func NewBaseApp(dataDir string, encryptionEnv string, isDebug bool) *BaseApp {
 // Bootstrap initializes the application
 // (aka. create data dir, open db connections, load settings, etc.)
 func (app *BaseApp) Bootstrap() error {
+	event := &BootstrapEvent{app}
+
+	if err := app.OnBeforeBootstrap().Trigger(event); err != nil {
+		return err
+	}
+
 	// clear resources of previous core state (if any)
 	if err := app.ResetBootstrapState(); err != nil {
 		return err
@@ -250,9 +292,12 @@ func (app *BaseApp) Bootstrap() error {
 		return err
 	}
 
-	// we don't check for an error because the db migrations may
-	// have not been executed yet.
+	// we don't check for an error because the db migrations may have not been executed yet
 	app.RefreshSettings()
+
+	if err := app.OnAfterBootstrap().Trigger(event); err != nil && app.IsDebug() {
+		log.Println(err)
+	}
 
 	return nil
 }
@@ -317,7 +362,7 @@ func (app *BaseApp) IsDebug() bool {
 }
 
 // Settings returns the loaded app settings.
-func (app *BaseApp) Settings() *Settings {
+func (app *BaseApp) Settings() *settings.Settings {
 	return app.settings
 }
 
@@ -371,77 +416,51 @@ func (app *BaseApp) NewFilesystem() (*filesystem.System, error) {
 // RefreshSettings reinitializes and reloads the stored application settings.
 func (app *BaseApp) RefreshSettings() error {
 	if app.settings == nil {
-		app.settings = NewSettings()
+		app.settings = settings.New()
 	}
 
 	encryptionKey := os.Getenv(app.EncryptionEnv())
 
-	param, err := app.Dao().FindParamByKey(models.ParamAppSettings)
+	storedSettings, err := app.Dao().FindSettings(encryptionKey)
 	if err != nil && err != sql.ErrNoRows {
 		return err
 	}
 
 	// no settings were previously stored
-	if param == nil {
-		return app.Dao().SaveParam(models.ParamAppSettings, app.settings, encryptionKey)
+	if storedSettings == nil {
+		return app.Dao().SaveSettings(app.settings, encryptionKey)
 	}
 
 	// load the settings from the stored param into the app ones
-	// ---
-	newSettings := NewSettings()
-
-	// try first without decryption
-	plainDecodeErr := json.Unmarshal(param.Value, newSettings)
-
-	// failed, try to decrypt
-	if plainDecodeErr != nil {
-		// load without decrypt has failed and there is no encryption key to use for decrypt
-		if encryptionKey == "" {
-			return errors.New("Failed to load the stored app settings (missing or invalid encryption key).")
-		}
-
-		// decrypt
-		decrypted, decryptErr := security.Decrypt(string(param.Value), encryptionKey)
-		if decryptErr != nil {
-			return decryptErr
-		}
-
-		// decode again
-		decryptedDecodeErr := json.Unmarshal(decrypted, newSettings)
-		if decryptedDecodeErr != nil {
-			return decryptedDecodeErr
-		}
-	}
-
-	if err := app.settings.Merge(newSettings); err != nil {
+	if err := app.settings.Merge(storedSettings); err != nil {
 		return err
-	}
-
-	afterMergeRaw, err := json.Marshal(app.settings)
-	if err != nil {
-		return err
-	}
-
-	if
-	// save because previously the settings weren't stored encrypted
-	(plainDecodeErr == nil && encryptionKey != "") ||
-		// or save because there are new fields after the merge
-		!bytes.Equal(param.Value, afterMergeRaw) {
-		saveErr := app.Dao().SaveParam(models.ParamAppSettings, app.settings, encryptionKey)
-		if saveErr != nil {
-			return saveErr
-		}
 	}
 
 	return nil
 }
 
 // -------------------------------------------------------------------
-// Serve event hooks
+// App event hooks
 // -------------------------------------------------------------------
+
+func (app *BaseApp) OnBeforeBootstrap() *hook.Hook[*BootstrapEvent] {
+	return app.onBeforeBootstrap
+}
+
+func (app *BaseApp) OnAfterBootstrap() *hook.Hook[*BootstrapEvent] {
+	return app.onAfterBootstrap
+}
 
 func (app *BaseApp) OnBeforeServe() *hook.Hook[*ServeEvent] {
 	return app.onBeforeServe
+}
+
+func (app *BaseApp) OnBeforeApiError() *hook.Hook[*ApiErrorEvent] {
+	return app.onBeforeApiError
+}
+
+func (app *BaseApp) OnAfterApiError() *hook.Hook[*ApiErrorEvent] {
+	return app.onAfterApiError
 }
 
 // -------------------------------------------------------------------
@@ -514,6 +533,18 @@ func (app *BaseApp) OnMailerAfterRecordChangeEmailSend() *hook.Hook[*MailerRecor
 
 func (app *BaseApp) OnRealtimeConnectRequest() *hook.Hook[*RealtimeConnectEvent] {
 	return app.onRealtimeConnectRequest
+}
+
+func (app *BaseApp) OnRealtimeDisconnectRequest() *hook.Hook[*RealtimeDisconnectEvent] {
+	return app.onRealtimeDisconnectRequest
+}
+
+func (app *BaseApp) OnRealtimeBeforeMessageSend() *hook.Hook[*RealtimeMessageEvent] {
+	return app.onRealtimeBeforeMessageSend
+}
+
+func (app *BaseApp) OnRealtimeAfterMessageSend() *hook.Hook[*RealtimeMessageEvent] {
+	return app.onRealtimeAfterMessageSend
 }
 
 func (app *BaseApp) OnRealtimeBeforeSubscribeRequest() *hook.Hook[*RealtimeSubscribeEvent] {
@@ -589,11 +620,59 @@ func (app *BaseApp) OnAdminAuthRequest() *hook.Hook[*AdminAuthEvent] {
 }
 
 // -------------------------------------------------------------------
-// Auth Record API event hooks
+// Record auth API event hooks
 // -------------------------------------------------------------------
 
 func (app *BaseApp) OnRecordAuthRequest() *hook.Hook[*RecordAuthEvent] {
 	return app.onRecordAuthRequest
+}
+
+func (app *BaseApp) OnRecordBeforeRequestPasswordResetRequest() *hook.Hook[*RecordRequestPasswordResetEvent] {
+	return app.onRecordBeforeRequestPasswordResetRequest
+}
+
+func (app *BaseApp) OnRecordAfterRequestPasswordResetRequest() *hook.Hook[*RecordRequestPasswordResetEvent] {
+	return app.onRecordAfterRequestPasswordResetRequest
+}
+
+func (app *BaseApp) OnRecordBeforeConfirmPasswordResetRequest() *hook.Hook[*RecordConfirmPasswordResetEvent] {
+	return app.onRecordBeforeConfirmPasswordResetRequest
+}
+
+func (app *BaseApp) OnRecordAfterConfirmPasswordResetRequest() *hook.Hook[*RecordConfirmPasswordResetEvent] {
+	return app.onRecordAfterConfirmPasswordResetRequest
+}
+
+func (app *BaseApp) OnRecordBeforeRequestVerificationRequest() *hook.Hook[*RecordRequestVerificationEvent] {
+	return app.onRecordBeforeRequestVerificationRequest
+}
+
+func (app *BaseApp) OnRecordAfterRequestVerificationRequest() *hook.Hook[*RecordRequestVerificationEvent] {
+	return app.onRecordAfterRequestVerificationRequest
+}
+
+func (app *BaseApp) OnRecordBeforeConfirmVerificationRequest() *hook.Hook[*RecordConfirmVerificationEvent] {
+	return app.onRecordBeforeConfirmVerificationRequest
+}
+
+func (app *BaseApp) OnRecordAfterConfirmVerificationRequest() *hook.Hook[*RecordConfirmVerificationEvent] {
+	return app.onRecordAfterConfirmVerificationRequest
+}
+
+func (app *BaseApp) OnRecordBeforeRequestEmailChangeRequest() *hook.Hook[*RecordRequestEmailChangeEvent] {
+	return app.onRecordBeforeRequestEmailChangeRequest
+}
+
+func (app *BaseApp) OnRecordAfterRequestEmailChangeRequest() *hook.Hook[*RecordRequestEmailChangeEvent] {
+	return app.onRecordAfterRequestEmailChangeRequest
+}
+
+func (app *BaseApp) OnRecordBeforeConfirmEmailChangeRequest() *hook.Hook[*RecordConfirmEmailChangeEvent] {
+	return app.onRecordBeforeConfirmEmailChangeRequest
+}
+
+func (app *BaseApp) OnRecordAfterConfirmEmailChangeRequest() *hook.Hook[*RecordConfirmEmailChangeEvent] {
+	return app.onRecordAfterConfirmEmailChangeRequest
 }
 
 func (app *BaseApp) OnRecordListExternalAuthsRequest() *hook.Hook[*RecordListExternalAuthsEvent] {
@@ -609,7 +688,7 @@ func (app *BaseApp) OnRecordAfterUnlinkExternalAuthRequest() *hook.Hook[*RecordU
 }
 
 // -------------------------------------------------------------------
-// Record API event hooks
+// Record CRUD API event hooks
 // -------------------------------------------------------------------
 
 func (app *BaseApp) OnRecordsListRequest() *hook.Hook[*RecordsListEvent] {
@@ -751,14 +830,12 @@ func (app *BaseApp) initDataDB() error {
 		return connectErr
 	}
 
-	app.db.QueryLogFunc = func(ctx context.Context, t time.Duration, sql string, rows *sql.Rows, err error) {
-		if app.IsDebug() {
+	if app.IsDebug() {
+		app.db.QueryLogFunc = func(ctx context.Context, t time.Duration, sql string, rows *sql.Rows, err error) {
 			color.HiBlack("[%.2fms] %v\n", float64(t.Milliseconds()), sql)
 		}
-	}
 
-	app.db.ExecLogFunc = func(ctx context.Context, t time.Duration, sql string, result sql.Result, err error) {
-		if app.IsDebug() {
+		app.db.ExecLogFunc = func(ctx context.Context, t time.Duration, sql string, result sql.Result, err error) {
 			color.HiBlack("[%.2fms] %v\n", float64(t.Milliseconds()), sql)
 		}
 	}
@@ -776,7 +853,10 @@ func (app *BaseApp) createDaoWithHooks(db dbx.Builder) *daos.Dao {
 	}
 
 	dao.AfterCreateFunc = func(eventDao *daos.Dao, m models.Model) {
-		app.OnModelAfterCreate().Trigger(&ModelEvent{eventDao, m})
+		err := app.OnModelAfterCreate().Trigger(&ModelEvent{eventDao, m})
+		if err != nil && app.isDebug {
+			log.Println(err)
+		}
 	}
 
 	dao.BeforeUpdateFunc = func(eventDao *daos.Dao, m models.Model) error {
@@ -784,7 +864,10 @@ func (app *BaseApp) createDaoWithHooks(db dbx.Builder) *daos.Dao {
 	}
 
 	dao.AfterUpdateFunc = func(eventDao *daos.Dao, m models.Model) {
-		app.OnModelAfterUpdate().Trigger(&ModelEvent{eventDao, m})
+		err := app.OnModelAfterUpdate().Trigger(&ModelEvent{eventDao, m})
+		if err != nil && app.isDebug {
+			log.Println(err)
+		}
 	}
 
 	dao.BeforeDeleteFunc = func(eventDao *daos.Dao, m models.Model) error {
@@ -792,7 +875,10 @@ func (app *BaseApp) createDaoWithHooks(db dbx.Builder) *daos.Dao {
 	}
 
 	dao.AfterDeleteFunc = func(eventDao *daos.Dao, m models.Model) {
-		app.OnModelAfterDelete().Trigger(&ModelEvent{eventDao, m})
+		err := app.OnModelAfterDelete().Trigger(&ModelEvent{eventDao, m})
+		if err != nil && app.isDebug {
+			log.Println(err)
+		}
 	}
 
 	return dao

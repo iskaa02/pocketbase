@@ -10,7 +10,7 @@ import (
 	"github.com/spf13/cast"
 )
 
-const migrationsTable = "_migrations"
+const DefaultMigrationsTable = "_migrations"
 
 // Runner defines a simple struct for managing the execution of db migrations.
 type Runner struct {
@@ -24,7 +24,7 @@ func NewRunner(db *dbx.DB, migrationsList MigrationsList) (*Runner, error) {
 	runner := &Runner{
 		db:             db,
 		migrationsList: migrationsList,
-		tableName:      migrationsTable,
+		tableName:      DefaultMigrationsTable,
 	}
 
 	if err := runner.createMigrationsTable(); err != nil {
@@ -111,19 +111,22 @@ func (r *Runner) Up() ([]string, error) {
 	err := r.db.Transactional(func(tx *dbx.Tx) error {
 		for _, m := range r.migrationsList.Items() {
 			// skip applied
-			if r.isMigrationApplied(tx, m.file) {
+			if r.isMigrationApplied(tx, m.File) {
 				continue
 			}
 
-			if err := m.up(tx); err != nil {
-				return fmt.Errorf("Failed to apply migration %s: %w", m.file, err)
+			// ignore empty Up action
+			if m.Up != nil {
+				if err := m.Up(tx); err != nil {
+					return fmt.Errorf("Failed to apply migration %s: %w", m.File, err)
+				}
 			}
 
-			if err := r.saveAppliedMigration(tx, m.file); err != nil {
-				return fmt.Errorf("Failed to save applied migration info for %s: %w", m.file, err)
+			if err := r.saveAppliedMigration(tx, m.File); err != nil {
+				return fmt.Errorf("Failed to save applied migration info for %s: %w", m.File, err)
 			}
 
-			applied = append(applied, m.file)
+			applied = append(applied, m.File)
 		}
 
 		return nil
@@ -146,7 +149,7 @@ func (r *Runner) Down(toRevertCount int) ([]string, error) {
 			m := r.migrationsList.Item(i)
 
 			// skip unapplied
-			if !r.isMigrationApplied(tx, m.file) {
+			if !r.isMigrationApplied(tx, m.File) {
 				continue
 			}
 
@@ -155,15 +158,18 @@ func (r *Runner) Down(toRevertCount int) ([]string, error) {
 				break
 			}
 
-			if err := m.down(tx); err != nil {
-				return fmt.Errorf("Failed to revert migration %s: %w", m.file, err)
+			// ignore empty Down action
+			if m.Down != nil {
+				if err := m.Down(tx); err != nil {
+					return fmt.Errorf("Failed to revert migration %s: %w", m.File, err)
+				}
 			}
 
-			if err := r.saveRevertedMigration(tx, m.file); err != nil {
-				return fmt.Errorf("Failed to save reverted migration info for %s: %w", m.file, err)
+			if err := r.saveRevertedMigration(tx, m.File); err != nil {
+				return fmt.Errorf("Failed to save reverted migration info for %s: %w", m.File, err)
 			}
 
-			reverted = append(reverted, m.file)
+			reverted = append(reverted, m.File)
 		}
 
 		return nil

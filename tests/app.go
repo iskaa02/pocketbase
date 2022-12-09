@@ -18,7 +18,13 @@ type TestApp struct {
 
 	// EventCalls defines a map to inspect which app events
 	// (and how many times) were triggered.
+	//
+	// The following events are not counted because they execute always:
+	// - OnBeforeBootstrap
+	// - OnAfterBootstrap
+	// - OnBeforeServe
 	EventCalls map[string]int
+
 	TestMailer *TestMailer
 }
 
@@ -81,11 +87,15 @@ func NewTestApp(optTestDataDir ...string) (*TestApp, error) {
 		TestMailer: &TestMailer{},
 	}
 
-	// no need to count since this is executed always
-	// t.OnBeforeServe().Add(func(e *core.ServeEvent) error {
-	// 	t.EventCalls["OnBeforeServe"]++
-	// 	return nil
-	// })
+	t.OnBeforeApiError().Add(func(e *core.ApiErrorEvent) error {
+		t.EventCalls["OnBeforeApiError"]++
+		return nil
+	})
+
+	t.OnAfterApiError().Add(func(e *core.ApiErrorEvent) error {
+		t.EventCalls["OnAfterApiError"]++
+		return nil
+	})
 
 	t.OnModelBeforeCreate().Add(func(e *core.ModelEvent) error {
 		t.EventCalls["OnModelBeforeCreate"]++
@@ -162,6 +172,66 @@ func NewTestApp(optTestDataDir ...string) (*TestApp, error) {
 		return nil
 	})
 
+	t.OnRecordBeforeRequestPasswordResetRequest().Add(func(e *core.RecordRequestPasswordResetEvent) error {
+		t.EventCalls["OnRecordBeforeRequestPasswordResetRequest"]++
+		return nil
+	})
+
+	t.OnRecordAfterRequestPasswordResetRequest().Add(func(e *core.RecordRequestPasswordResetEvent) error {
+		t.EventCalls["OnRecordAfterRequestPasswordResetRequest"]++
+		return nil
+	})
+
+	t.OnRecordBeforeConfirmPasswordResetRequest().Add(func(e *core.RecordConfirmPasswordResetEvent) error {
+		t.EventCalls["OnRecordBeforeConfirmPasswordResetRequest"]++
+		return nil
+	})
+
+	t.OnRecordAfterConfirmPasswordResetRequest().Add(func(e *core.RecordConfirmPasswordResetEvent) error {
+		t.EventCalls["OnRecordAfterConfirmPasswordResetRequest"]++
+		return nil
+	})
+
+	t.OnRecordBeforeRequestVerificationRequest().Add(func(e *core.RecordRequestVerificationEvent) error {
+		t.EventCalls["OnRecordBeforeRequestVerificationRequest"]++
+		return nil
+	})
+
+	t.OnRecordAfterRequestVerificationRequest().Add(func(e *core.RecordRequestVerificationEvent) error {
+		t.EventCalls["OnRecordAfterRequestVerificationRequest"]++
+		return nil
+	})
+
+	t.OnRecordBeforeConfirmVerificationRequest().Add(func(e *core.RecordConfirmVerificationEvent) error {
+		t.EventCalls["OnRecordBeforeConfirmVerificationRequest"]++
+		return nil
+	})
+
+	t.OnRecordAfterConfirmVerificationRequest().Add(func(e *core.RecordConfirmVerificationEvent) error {
+		t.EventCalls["OnRecordAfterConfirmVerificationRequest"]++
+		return nil
+	})
+
+	t.OnRecordBeforeRequestEmailChangeRequest().Add(func(e *core.RecordRequestEmailChangeEvent) error {
+		t.EventCalls["OnRecordBeforeRequestEmailChangeRequest"]++
+		return nil
+	})
+
+	t.OnRecordAfterRequestEmailChangeRequest().Add(func(e *core.RecordRequestEmailChangeEvent) error {
+		t.EventCalls["OnRecordAfterRequestEmailChangeRequest"]++
+		return nil
+	})
+
+	t.OnRecordBeforeConfirmEmailChangeRequest().Add(func(e *core.RecordConfirmEmailChangeEvent) error {
+		t.EventCalls["OnRecordBeforeConfirmEmailChangeRequest"]++
+		return nil
+	})
+
+	t.OnRecordAfterConfirmEmailChangeRequest().Add(func(e *core.RecordConfirmEmailChangeEvent) error {
+		t.EventCalls["OnRecordAfterConfirmEmailChangeRequest"]++
+		return nil
+	})
+
 	t.OnRecordListExternalAuthsRequest().Add(func(e *core.RecordListExternalAuthsEvent) error {
 		t.EventCalls["OnRecordListExternalAuthsRequest"]++
 		return nil
@@ -219,6 +289,21 @@ func NewTestApp(optTestDataDir ...string) (*TestApp, error) {
 
 	t.OnRealtimeConnectRequest().Add(func(e *core.RealtimeConnectEvent) error {
 		t.EventCalls["OnRealtimeConnectRequest"]++
+		return nil
+	})
+
+	t.OnRealtimeDisconnectRequest().Add(func(e *core.RealtimeDisconnectEvent) error {
+		t.EventCalls["OnRealtimeDisconnectRequest"]++
+		return nil
+	})
+
+	t.OnRealtimeBeforeMessageSend().Add(func(e *core.RealtimeMessageEvent) error {
+		t.EventCalls["OnRealtimeBeforeMessageSend"]++
+		return nil
+	})
+
+	t.OnRealtimeAfterMessageSend().Add(func(e *core.RealtimeMessageEvent) error {
+		t.EventCalls["OnRealtimeAfterMessageSend"]++
 		return nil
 	})
 
