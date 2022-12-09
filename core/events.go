@@ -4,6 +4,7 @@ import (
 	"github.com/pocketbase/pocketbase/daos"
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/models/schema"
+	"github.com/pocketbase/pocketbase/models/settings"
 	"github.com/pocketbase/pocketbase/tools/mailer"
 	"github.com/pocketbase/pocketbase/tools/search"
 	"github.com/pocketbase/pocketbase/tools/subscriptions"
@@ -15,9 +16,18 @@ import (
 // Serve events data
 // -------------------------------------------------------------------
 
+type BootstrapEvent struct {
+	App App
+}
+
 type ServeEvent struct {
 	App    App
 	Router *echo.Echo
+}
+
+type ApiErrorEvent struct {
+	HttpContext echo.Context
+	Error       error
 }
 
 // -------------------------------------------------------------------
@@ -56,6 +66,17 @@ type RealtimeConnectEvent struct {
 	Client      subscriptions.Client
 }
 
+type RealtimeDisconnectEvent struct {
+	HttpContext echo.Context
+	Client      subscriptions.Client
+}
+
+type RealtimeMessageEvent struct {
+	HttpContext echo.Context
+	Client      subscriptions.Client
+	Message     *subscriptions.Message
+}
+
 type RealtimeSubscribeEvent struct {
 	HttpContext   echo.Context
 	Client        subscriptions.Client
@@ -68,17 +89,17 @@ type RealtimeSubscribeEvent struct {
 
 type SettingsListEvent struct {
 	HttpContext      echo.Context
-	RedactedSettings *Settings
+	RedactedSettings *settings.Settings
 }
 
 type SettingsUpdateEvent struct {
 	HttpContext echo.Context
-	OldSettings *Settings
-	NewSettings *Settings
+	OldSettings *settings.Settings
+	NewSettings *settings.Settings
 }
 
 // -------------------------------------------------------------------
-// Record API events data
+// Record CRUD API events data
 // -------------------------------------------------------------------
 
 type RecordsListEvent struct {
@@ -106,6 +127,59 @@ type RecordUpdateEvent struct {
 type RecordDeleteEvent struct {
 	HttpContext echo.Context
 	Record      *models.Record
+}
+
+// -------------------------------------------------------------------
+// Auth Record API events data
+// -------------------------------------------------------------------
+
+type RecordAuthEvent struct {
+	HttpContext echo.Context
+	Record      *models.Record
+	Token       string
+	Meta        any
+}
+
+type RecordRequestPasswordResetEvent struct {
+	HttpContext echo.Context
+	Record      *models.Record
+}
+
+type RecordConfirmPasswordResetEvent struct {
+	HttpContext echo.Context
+	Record      *models.Record
+}
+
+type RecordRequestVerificationEvent struct {
+	HttpContext echo.Context
+	Record      *models.Record
+}
+
+type RecordConfirmVerificationEvent struct {
+	HttpContext echo.Context
+	Record      *models.Record
+}
+
+type RecordRequestEmailChangeEvent struct {
+	HttpContext echo.Context
+	Record      *models.Record
+}
+
+type RecordConfirmEmailChangeEvent struct {
+	HttpContext echo.Context
+	Record      *models.Record
+}
+
+type RecordListExternalAuthsEvent struct {
+	HttpContext   echo.Context
+	Record        *models.Record
+	ExternalAuths []*models.ExternalAuth
+}
+
+type RecordUnlinkExternalAuthEvent struct {
+	HttpContext  echo.Context
+	Record       *models.Record
+	ExternalAuth *models.ExternalAuth
 }
 
 // -------------------------------------------------------------------
@@ -142,29 +216,6 @@ type AdminAuthEvent struct {
 	HttpContext echo.Context
 	Admin       *models.Admin
 	Token       string
-}
-
-// -------------------------------------------------------------------
-// Auth Record API events data
-// -------------------------------------------------------------------
-
-type RecordAuthEvent struct {
-	HttpContext echo.Context
-	Record      *models.Record
-	Token       string
-	Meta        any
-}
-
-type RecordListExternalAuthsEvent struct {
-	HttpContext   echo.Context
-	Record        *models.Record
-	ExternalAuths []*models.ExternalAuth
-}
-
-type RecordUnlinkExternalAuthEvent struct {
-	HttpContext  echo.Context
-	Record       *models.Record
-	ExternalAuth *models.ExternalAuth
 }
 
 // -------------------------------------------------------------------

@@ -6,6 +6,7 @@ package core
 import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/daos"
+	"github.com/pocketbase/pocketbase/models/settings"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
 	"github.com/pocketbase/pocketbase/tools/hook"
 	"github.com/pocketbase/pocketbase/tools/mailer"
@@ -47,7 +48,7 @@ type App interface {
 	IsDebug() bool
 
 	// Settings returns the loaded app settings.
-	Settings() *Settings
+	Settings() *settings.Settings
 
 	// Cache returns the app internal cache store.
 	Cache() *store.Store[any]
@@ -79,9 +80,27 @@ type App interface {
 	// App event hooks
 	// ---------------------------------------------------------------
 
+	// OnBeforeBootstrap hook is triggered before initializing the base
+	// application resources (eg. before db open and initial settings load).
+	OnBeforeBootstrap() *hook.Hook[*BootstrapEvent]
+
+	// OnAfterBootstrap hook is triggered after initializing the base
+	// application resources (eg. after db open and initial settings load).
+	OnAfterBootstrap() *hook.Hook[*BootstrapEvent]
+
 	// OnBeforeServe hook is triggered before serving the internal router (echo),
 	// allowing you to adjust its options and attach new routes.
 	OnBeforeServe() *hook.Hook[*ServeEvent]
+
+	// OnBeforeApiError hook is triggered right before sending an error API
+	// response to the client, allowing you to further modify the error data
+	// or to return a completely different API response (using [hook.StopPropagation]).
+	OnBeforeApiError() *hook.Hook[*ApiErrorEvent]
+
+	// OnAfterApiError hook is triggered right after sending an error API
+	// response to the client.
+	// It could be used to log the final API error in external services.
+	OnAfterApiError() *hook.Hook[*ApiErrorEvent]
 
 	// ---------------------------------------------------------------
 	// Dao event hooks
@@ -166,6 +185,21 @@ type App interface {
 	// OnRealtimeConnectRequest hook is triggered right before establishing
 	// the SSE client connection.
 	OnRealtimeConnectRequest() *hook.Hook[*RealtimeConnectEvent]
+
+	// OnRealtimeDisconnectRequest hook is triggered on disconnected/interrupted
+	// SSE client connection.
+	OnRealtimeDisconnectRequest() *hook.Hook[*RealtimeDisconnectEvent]
+
+	// OnRealtimeBeforeMessage hook is triggered right before sending
+	// an SSE message to a client.
+	//
+	// Returning [hook.StopPropagation] will prevent sending the message.
+	// Returning any other non-nil error will close the realtime connection.
+	OnRealtimeBeforeMessageSend() *hook.Hook[*RealtimeMessageEvent]
+
+	// OnRealtimeBeforeMessage hook is triggered right after sending
+	// an SSE message to a client.
+	OnRealtimeAfterMessageSend() *hook.Hook[*RealtimeMessageEvent]
 
 	// OnRealtimeBeforeSubscribeRequest hook is triggered before changing
 	// the client subscriptions, allowing you to further validate and
@@ -264,7 +298,7 @@ type App interface {
 	OnAdminAuthRequest() *hook.Hook[*AdminAuthEvent]
 
 	// ---------------------------------------------------------------
-	// Auth Record API event hooks
+	// Record Auth API event hooks
 	// ---------------------------------------------------------------
 
 	// OnRecordAuthRequest hook is triggered on each successful API
@@ -273,6 +307,72 @@ type App interface {
 	// Could be used to additionally validate or modify the authenticated
 	// record data and token.
 	OnRecordAuthRequest() *hook.Hook[*RecordAuthEvent]
+
+	// OnRecordBeforeRequestPasswordResetRequest hook is triggered before each Record
+	// request password reset API request (after request data load and before sending the reset email).
+	//
+	// Could be used to additionally validate the request data or implement
+	// completely different password reset behavior (returning [hook.StopPropagation]).
+	OnRecordBeforeRequestPasswordResetRequest() *hook.Hook[*RecordRequestPasswordResetEvent]
+
+	// OnRecordAfterRequestPasswordResetRequest hook is triggered after each
+	// successful request password reset API request.
+	OnRecordAfterRequestPasswordResetRequest() *hook.Hook[*RecordRequestPasswordResetEvent]
+
+	// OnRecordBeforeConfirmPasswordResetRequest hook is triggered before each Record
+	// confirm password reset API request (after request data load and before persistence).
+	//
+	// Could be used to additionally validate the request data or implement
+	// completely different persistence behavior (returning [hook.StopPropagation]).
+	OnRecordBeforeConfirmPasswordResetRequest() *hook.Hook[*RecordConfirmPasswordResetEvent]
+
+	// OnRecordAfterConfirmPasswordResetRequest hook is triggered after each
+	// successful confirm password reset API request.
+	OnRecordAfterConfirmPasswordResetRequest() *hook.Hook[*RecordConfirmPasswordResetEvent]
+
+	// OnRecordBeforeRequestVerificationRequest hook is triggered before each Record
+	// request verification API request (after request data load and before sending the verification email).
+	//
+	// Could be used to additionally validate the loaded request data or implement
+	// completely different verification behavior (returning [hook.StopPropagation]).
+	OnRecordBeforeRequestVerificationRequest() *hook.Hook[*RecordRequestVerificationEvent]
+
+	// OnRecordAfterRequestVerificationRequest hook is triggered after each
+	// successful request verification API request.
+	OnRecordAfterRequestVerificationRequest() *hook.Hook[*RecordRequestVerificationEvent]
+
+	// OnRecordBeforeConfirmVerificationRequest hook is triggered before each Record
+	// confirm verification API request (after request data load and before persistence).
+	//
+	// Could be used to additionally validate the request data or implement
+	// completely different persistence behavior (returning [hook.StopPropagation]).
+	OnRecordBeforeConfirmVerificationRequest() *hook.Hook[*RecordConfirmVerificationEvent]
+
+	// OnRecordAfterConfirmVerificationRequest hook is triggered after each
+	// successful confirm verification API request.
+	OnRecordAfterConfirmVerificationRequest() *hook.Hook[*RecordConfirmVerificationEvent]
+
+	// OnRecordBeforeRequestEmailChangeRequest hook is triggered before each Record request email change API request
+	// (after request data load and before sending the email link to confirm the change).
+	//
+	// Could be used to additionally validate the request data or implement
+	// completely different request email change behavior (returning [hook.StopPropagation]).
+	OnRecordBeforeRequestEmailChangeRequest() *hook.Hook[*RecordRequestEmailChangeEvent]
+
+	// OnRecordAfterRequestEmailChangeRequest hook is triggered after each
+	// successful request email change API request.
+	OnRecordAfterRequestEmailChangeRequest() *hook.Hook[*RecordRequestEmailChangeEvent]
+
+	// OnRecordBeforeConfirmEmailChangeRequest hook is triggered before each Record
+	// confirm email change API request (after request data load and before persistence).
+	//
+	// Could be used to additionally validate the request data or implement
+	// completely different persistence behavior (returning [hook.StopPropagation]).
+	OnRecordBeforeConfirmEmailChangeRequest() *hook.Hook[*RecordConfirmEmailChangeEvent]
+
+	// OnRecordAfterConfirmEmailChangeRequest hook is triggered after each
+	// successful confirm email change API request.
+	OnRecordAfterConfirmEmailChangeRequest() *hook.Hook[*RecordConfirmEmailChangeEvent]
 
 	// OnRecordListExternalAuthsRequest hook is triggered on each API record external auths list request.
 	//
@@ -291,7 +391,7 @@ type App interface {
 	OnRecordAfterUnlinkExternalAuthRequest() *hook.Hook[*RecordUnlinkExternalAuthEvent]
 
 	// ---------------------------------------------------------------
-	// Record API event hooks
+	// Record CRUD API event hooks
 	// ---------------------------------------------------------------
 
 	// OnRecordsListRequest hook is triggered on each API Records list request.

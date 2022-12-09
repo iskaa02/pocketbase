@@ -1,9 +1,11 @@
 package daos
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/models"
@@ -316,14 +318,14 @@ func (dao *Dao) SuggestUniqueAuthRecordUsername(
 func (dao *Dao) SaveRecord(record *models.Record) error {
 	if record.Collection().IsAuth() {
 		if record.Username() == "" {
-			return errors.New("Unable to save auth record without username.")
+			return errors.New("unable to save auth record without username")
 		}
 
 		// Cross-check that the auth record id is unique for all auth collections.
 		// This is to make sure that the filter `@request.auth.id` always returns a unique id.
 		authCollections, err := dao.FindCollectionsByType(models.CollectionTypeAuth)
 		if err != nil {
-			return fmt.Errorf("Unable to fetch the auth collections for cross-id unique check: %v", err)
+			return fmt.Errorf("unable to fetch the auth collections for cross-id unique check: %w", err)
 		}
 		for _, collection := range authCollections {
 			if record.Collection().Id == collection.Id {
@@ -331,7 +333,7 @@ func (dao *Dao) SaveRecord(record *models.Record) error {
 			}
 			isUnique := dao.IsRecordValueUnique(collection.Id, schema.FieldNameId, record.Id)
 			if !isUnique {
-				return errors.New("The auth record ID must be unique across all auth collections.")
+				return errors.New("the auth record ID must be unique across all auth collections")
 			}
 		}
 	}
@@ -347,29 +349,55 @@ func (dao *Dao) SaveRecord(record *models.Record) error {
 // The delete operation may fail if the record is part of a required
 // reference in another record (aka. cannot be deleted or set to NULL).
 func (dao *Dao) DeleteRecord(record *models.Record) error {
-	// check for references
-	// note: the select is outside of the transaction to prevent SQLITE_LOCKED error when mixing read&write in a single transaction.
+	// fetch rel references (if any)
+	//
+	// note: the select is outside of the transaction to minimize
+	// SQLITE_BUSY errors when mixing read&write in a single transaction
 	refs, err := dao.FindCollectionReferences(record.Collection())
 	if err != nil {
 		return err
 	}
 
-	// check if related records has to be deleted (if `CascadeDelete` is set)
-	// OR
-	// just unset the record id from any relation field values (if they are not required)
-	// -----------------------------------------------------------
+	// run all consequent DeleteRecord requests synchroniously
+	// to minimize SQLITE_BUSY errors
+	if len(refs) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := dao.Block(ctx); err != nil {
+			return err
+		}
+		defer dao.Continue()
+	}
+
 	return dao.RunInTransaction(func(txDao *Dao) error {
-		// delete/update references
+		// always delete the record first to ensure that there will be no "A<->B"
+		// relations to prevent deadlock when calling DeleteRecord recursively
+		if err := txDao.Delete(record); err != nil {
+			return err
+		}
+
+		// check if related records has to be deleted (if `CascadeDelete` is set)
+		// OR
+		// just unset the record id from any relation field values (if they are not required)
+		uniqueJsonEachAlias := "__je__" + security.PseudorandomString(5)
 		for refCollection, fields := range refs {
 			for _, field := range fields {
 				options, _ := field.Options.(*schema.RelationOptions)
 
 				rows := []dbx.NullStringMap{}
 
-				// note: the select is not using the transaction dao to prevent SQLITE_LOCKED error when mixing read&write in a single transaction
-				err := dao.RecordQuery(refCollection).
-					AndWhere(dbx.Not(dbx.HashExp{"id": record.Id})).
-					AndWhere(dbx.Like(field.Name, record.Id).Match(true, true)).
+				// fetch all referenced records
+				recordTableName := inflector.Columnify(refCollection.Name)
+				prefixedFieldName := recordTableName + "." + inflector.Columnify(field.Name)
+				err := txDao.RecordQuery(refCollection).
+					Distinct(true).
+					LeftJoin(fmt.Sprintf(
+						// note: the case is used to normalize value access for single and multiple relations.
+						`json_each(CASE WHEN json_valid([[%s]]) THEN [[%s]] ELSE json_array([[%s]]) END) as {{%s}}`,
+						prefixedFieldName, prefixedFieldName, prefixedFieldName, uniqueJsonEachAlias,
+					), nil).
+					AndWhere(dbx.Not(dbx.HashExp{recordTableName + ".id": record.Id})).
+					AndWhere(dbx.HashExp{uniqueJsonEachAlias + ".value": record.Id}).
 					All(&rows)
 				if err != nil {
 					return err
@@ -393,7 +421,7 @@ func (dao *Dao) DeleteRecord(record *models.Record) error {
 						if err := txDao.DeleteRecord(refRecord); err != nil {
 							return err
 						}
-						// no further action are needed (the reference is deleted)
+						// no further actions are needed (the reference is deleted)
 						continue
 					}
 
@@ -421,7 +449,7 @@ func (dao *Dao) DeleteRecord(record *models.Record) error {
 			}
 		}
 
-		return txDao.Delete(record)
+		return nil
 	})
 }
 
