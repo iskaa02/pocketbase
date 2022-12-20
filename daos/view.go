@@ -111,7 +111,7 @@ func (dao *Dao) GetViewSchema(viewName string) (s schema.Schema, err error) {
 	rows := []dbx.NullStringMap{}
 	s = schema.Schema{}
 	// this query will return the view columns underlying type ('TEXT','BOOLEAN','REAL','JSON')
-	sql := fmt.Sprintf(`PRAGMA table_info(%s)`, dao.db.QuoteSimpleTableName(viewName))
+	sql := fmt.Sprintf(`PRAGMA table_info(%s)`, dao.DB().QuoteSimpleTableName(viewName))
 	err = dao.DB().NewQuery(sql).All(&rows)
 	if err != nil {
 		return
