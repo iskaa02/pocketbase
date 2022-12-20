@@ -20,6 +20,25 @@ func TestNew(t *testing.T) {
 	}
 }
 
+func TestNewMultiDB(t *testing.T) {
+	testApp, _ := tests.NewTestApp()
+	defer testApp.Cleanup()
+
+	dao := daos.NewMultiDB(testApp.Dao().ConcurrentDB(), testApp.Dao().NonconcurrentDB())
+
+	if dao.DB() != testApp.Dao().ConcurrentDB() {
+		t.Fatal("[db-concurrentDB] The 2 db instances are different")
+	}
+
+	if dao.ConcurrentDB() != testApp.Dao().ConcurrentDB() {
+		t.Fatal("[concurrentDB-concurrentDB] The 2 db instances are different")
+	}
+
+	if dao.NonconcurrentDB() != testApp.Dao().NonconcurrentDB() {
+		t.Fatal("[nonconcurrentDB-nonconcurrentDB] The 2 db instances are different")
+	}
+}
+
 func TestDaoModelQuery(t *testing.T) {
 	testApp, _ := tests.NewTestApp()
 	defer testApp.Cleanup()

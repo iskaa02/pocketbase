@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,6 +17,7 @@ import (
 	"github.com/pocketbase/pocketbase/forms"
 	"github.com/pocketbase/pocketbase/models"
 	"github.com/pocketbase/pocketbase/tests"
+	"github.com/pocketbase/pocketbase/tools/filesystem"
 	"github.com/pocketbase/pocketbase/tools/list"
 )
 
@@ -44,9 +46,9 @@ func TestNewRecordUpsert(t *testing.T) {
 
 	form := forms.NewRecordUpsert(app, record)
 
-	val := form.Data["title"]
+	val := form.Data()["title"]
 	if val != "test_value" {
-		t.Errorf("Expected record data to be loaded, got %v", form.Data)
+		t.Errorf("Expected record data to be loaded, got %v", form.Data())
 	}
 }
 
@@ -107,15 +109,15 @@ func TestRecordUpsertLoadRequestJson(t *testing.T) {
 		t.Fatalf("Expect id field to be %q, got %q", "test_id", form.Id)
 	}
 
-	if v, ok := form.Data["text"]; !ok || v != "test123" {
+	if v, ok := form.Data()["text"]; !ok || v != "test123" {
 		t.Fatalf("Expect title field to be %q, got %q", "test123", v)
 	}
 
-	if v, ok := form.Data["unknown"]; ok {
+	if v, ok := form.Data()["unknown"]; ok {
 		t.Fatalf("Didn't expect unknown field to be set, got %v", v)
 	}
 
-	fileOne, ok := form.Data["file_one"]
+	fileOne, ok := form.Data()["file_one"]
 	if !ok {
 		t.Fatal("Expect file_one field to be set")
 	}
@@ -123,7 +125,7 @@ func TestRecordUpsertLoadRequestJson(t *testing.T) {
 		t.Fatalf("Expect file_one field to be empty string, got %v", fileOne)
 	}
 
-	fileMany, ok := form.Data["file_many"]
+	fileMany, ok := form.Data()["file_many"]
 	if !ok || fileMany == nil {
 		t.Fatal("Expect file_many field to be set")
 	}
@@ -168,15 +170,15 @@ func TestRecordUpsertLoadRequestMultipart(t *testing.T) {
 		t.Fatalf("Expect id field to be %q, got %q", "test_id", form.Id)
 	}
 
-	if v, ok := form.Data["text"]; !ok || v != "test123" {
+	if v, ok := form.Data()["text"]; !ok || v != "test123" {
 		t.Fatalf("Expect text field to be %q, got %q", "test123", v)
 	}
 
-	if v, ok := form.Data["unknown"]; ok {
+	if v, ok := form.Data()["unknown"]; ok {
 		t.Fatalf("Didn't expect unknown field to be set, got %v", v)
 	}
 
-	fileOne, ok := form.Data["file_one"]
+	fileOne, ok := form.Data()["file_one"]
 	if !ok {
 		t.Fatal("Expect file_one field to be set")
 	}
@@ -184,7 +186,7 @@ func TestRecordUpsertLoadRequestMultipart(t *testing.T) {
 		t.Fatalf("Expect file_one field to be empty string, got %v", fileOne)
 	}
 
-	fileMany, ok := form.Data["file_many"]
+	fileMany, ok := form.Data()["file_many"]
 	if !ok || fileMany == nil {
 		t.Fatal("Expect file_many field to be set")
 	}
@@ -214,11 +216,11 @@ func TestRecordUpsertLoadData(t *testing.T) {
 		t.Fatal(loadErr)
 	}
 
-	if v, ok := form.Data["title"]; !ok || v != "test_new" {
+	if v, ok := form.Data()["title"]; !ok || v != "test_new" {
 		t.Fatalf("Expect title field to be %v, got %v", "test_new", v)
 	}
 
-	if v, ok := form.Data["active"]; !ok || v != true {
+	if v, ok := form.Data()["active"]; !ok || v != true {
 		t.Fatalf("Expect active field to be %v, got %v", true, v)
 	}
 }
@@ -316,12 +318,10 @@ func TestRecordUpsertDrySubmitSuccess(t *testing.T) {
 	}
 
 	// ensure that the record changes weren't persisted
-	// ---
 	recordAfter, err := app.Dao().FindRecordById(collection.Id, recordBefore.Id)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 	if recordAfter.GetString("title") == "dry_test" {
 		t.Fatalf("Expected record.title to be %v, got %v", recordAfter.GetString("title"), "dry_test")
 	}
@@ -332,6 +332,66 @@ func TestRecordUpsertDrySubmitSuccess(t *testing.T) {
 	// file wasn't removed
 	if !hasRecordFile(app, recordAfter, recordAfter.GetString("file_one")) {
 		t.Fatal("file_one file should not have been deleted")
+	}
+}
+
+func TestRecordUpsertDrySubmitWithNestedTx(t *testing.T) {
+	app, _ := tests.NewTestApp()
+	defer app.Cleanup()
+
+	collection, _ := app.Dao().FindCollectionByNameOrId("demo1")
+	recordBefore, err := app.Dao().FindRecordById(collection.Id, "84nmscqy84lsi1t")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	formData, mp, err := tests.MockMultipartData(map[string]string{
+		"title": "dry_test",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	txErr := app.Dao().RunInTransaction(func(txDao *daos.Dao) error {
+		form := forms.NewRecordUpsert(app, recordBefore)
+		form.SetDao(txDao)
+		req := httptest.NewRequest(http.MethodGet, "/", formData)
+		req.Header.Set(echo.HeaderContentType, mp.FormDataContentType())
+		form.LoadRequest(req, "")
+
+		callbackCalls := 0
+
+		result := form.DrySubmit(func(innerTxDao *daos.Dao) error {
+			callbackCalls++
+			return nil
+		})
+		if result != nil {
+			t.Fatalf("Expected nil, got error %v", result)
+		}
+
+		// ensure callback was called
+		if callbackCalls != 1 {
+			t.Fatalf("Expected callbackCalls to be 1, got %d", callbackCalls)
+		}
+
+		// ensure that the original txDao can still be used after the DrySubmit rollback
+		if _, err := txDao.FindRecordById(collection.Id, recordBefore.Id); err != nil {
+			t.Fatalf("Expected the dry submit rollback to not affect the outer tx context, got %v", err)
+		}
+
+		// ensure that the record changes weren't persisted
+		recordAfter, err := app.Dao().FindRecordById(collection.Id, recordBefore.Id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if recordAfter.GetString("title") == "dry_test" {
+			t.Fatalf("Expected record.title to be %v, got %v", recordBefore.GetString("title"), "dry_test")
+		}
+
+		return nil
+	})
+	if txErr != nil {
+		t.Fatalf("Nested transactions failure: %v", txErr)
 	}
 }
 
@@ -498,7 +558,7 @@ func TestRecordUpsertSubmitInterceptors(t *testing.T) {
 	}
 
 	form := forms.NewRecordUpsert(app, record)
-	form.Data["title"] = "test_new"
+	form.Data()["title"] = "test_new"
 
 	testErr := errors.New("test_error")
 	interceptorRecordTitle := ""
@@ -533,7 +593,7 @@ func TestRecordUpsertSubmitInterceptors(t *testing.T) {
 		t.Fatalf("Expected interceptor2 to be called")
 	}
 
-	if interceptorRecordTitle != form.Data["title"].(string) {
+	if interceptorRecordTitle != form.Data()["title"].(string) {
 		t.Fatalf("Expected the form model to be filled before calling the interceptors")
 	}
 }
@@ -793,6 +853,24 @@ func TestRecordUpsertAuthRecord(t *testing.T) {
 
 		// password
 		{
+			"trigger the password validations if only oldPassword is set",
+			"4q1xlclmfloku33",
+			map[string]any{
+				"oldPassword": "1234567890",
+			},
+			false,
+			true,
+		},
+		{
+			"trigger the password validations if only passwordConfirm is set",
+			"4q1xlclmfloku33",
+			map[string]any{
+				"passwordConfirm": "1234567890",
+			},
+			false,
+			true,
+		},
+		{
 			"try to update password without managed access",
 			"4q1xlclmfloku33",
 			map[string]any{
@@ -861,5 +939,77 @@ func TestRecordUpsertAuthRecord(t *testing.T) {
 		if !hasErr && record.Username() == "" {
 			t.Errorf("[%s] Expected username to be set, got empty string: \n%v", s.testName, record)
 		}
+	}
+}
+
+func TestRecordUpsertAddAndRemoveFiles(t *testing.T) {
+	app, _ := tests.NewTestApp()
+	defer app.Cleanup()
+
+	recordBefore, err := app.Dao().FindRecordById("demo1", "84nmscqy84lsi1t")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// create test temp files
+	tempDir := filepath.Join(app.DataDir(), "temp")
+	if err := os.MkdirAll(app.DataDir(), os.ModePerm); err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tempDir)
+	tmpFile, _ := os.CreateTemp(os.TempDir(), "tmpfile1-*.txt")
+	tmpFile.Close()
+
+	form := forms.NewRecordUpsert(app, recordBefore)
+
+	f1, err := filesystem.NewFileFromPath(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f2, err := filesystem.NewFileFromPath(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	f3, err := filesystem.NewFileFromPath(tmpFile.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	form.AddFiles("file_one", f1) // should replace the existin file
+
+	form.AddFiles("file_many", f2, f3) // should append
+
+	form.RemoveFiles("file_many", "300_WlbFWSGmW9.png", "logo_vcfJJG5TAh.svg") // should remove
+
+	if err := form.Submit(); err != nil {
+		t.Fatalf("Failed to submit the RecordUpsert form, got %v", err)
+	}
+
+	recordAfter, err := app.Dao().FindRecordById("demo1", "84nmscqy84lsi1t")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// ensure files deletion
+	if hasRecordFile(app, recordAfter, "test_d61b33QdDU.txt") {
+		t.Fatalf("Expected the old file_one file to be deleted")
+	}
+	if hasRecordFile(app, recordAfter, "300_WlbFWSGmW9.png") {
+		t.Fatalf("Expected 300_WlbFWSGmW9.png to be deleted")
+	}
+	if hasRecordFile(app, recordAfter, "logo_vcfJJG5TAh.svg") {
+		t.Fatalf("Expected logo_vcfJJG5TAh.svg to be deleted")
+	}
+
+	fileOne := recordAfter.GetStringSlice("file_one")
+	if len(fileOne) == 0 {
+		t.Fatalf("Expected new file_one file to be uploaded")
+	}
+
+	fileMany := recordAfter.GetStringSlice("file_many")
+	if len(fileMany) != 3 {
+		t.Fatalf("Expected file_many to be 3, got %v", fileMany)
 	}
 }

@@ -1,26 +1,64 @@
-## (WIP) v0.9.0
+## v0.10.2
 
-- Changes to the `mailer.Mailer` interface (_minor breaking if you are sending custom emails_):
-    ```go
-    // Old:
-    app.NewMailClient().Send(from, to, subject, html, attachments?)
+- Fixed nested multiple expands with shared path ([#586](https://github.com/pocketbase/pocketbase/issues/586#issuecomment-1357784227)).
+  A new helper method `models.Record.MergeExpand(map[string]any)` was also added to simplify the expand handling and unit testing.
 
-    // New:
-    app.NewMailClient().Send(&mailer.Message{
-      From: from,
-      To: to,
-      Subject: subject,
-      HTML: html,
-      Attachments: attachments,
-      // new configurable fields
-      Bcc: []string{"bcc1@example.com", "bcc2@example.com"},
-      Cc: []string{"cc1@example.com", "cc2@example.com"},
-      Headers: map[string]string{"Custom-Header": "test"},
-      Text: "custom plain text version",
-    })
-    ```
 
-- Added the new `*mailer.Message` to the `MailerRecordEvent`, `MailerAdminEvent` event structs.
+## v0.10.1
+
+- Fixed nested transactions deadlock when authenticating with OAuth2 ([#1291](https://github.com/pocketbase/pocketbase/issues/1291)).
+
+
+## v0.10.0
+
+- Added `/api/health` endpoint (thanks @MarvinJWendt).
+
+- Added support for SMTP `LOGIN` auth for Microsoft/Outlook and other providers that don't support the `PLAIN` auth method ([#1217](https://github.com/pocketbase/pocketbase/discussions/1217#discussioncomment-4387970)).
+
+- Reduced memory consumption (you can expect ~20% less allocated memory).
+
+- Added support for split (concurrent and nonconcurrent) DB connections pool increasing even further the concurrent throughput without blocking reads on heavy write load.
+
+- Improved record references delete performance.
+
+- Removed the unnecessary parenthesis in the generated filter SQL query, reducing the "_parse stack overflow_" errors.
+
+- Fixed `~` expressions backslash literal escaping ([#1231](https://github.com/pocketbase/pocketbase/discussions/1231)).
+
+- Refactored the `core.app.Bootstrap()` to be called before starting the cobra commands ([#1267](https://github.com/pocketbase/pocketbase/discussions/1267)).
+
+- ! Changed `pocketbase.NewWithConfig(config Config)` to `pocketbase.NewWithConfig(config *Config)` and added 4 new config settings:
+  ```go
+  DataMaxOpenConns int // default to core.DefaultDataMaxOpenConns
+  DataMaxIdleConns int // default to core.DefaultDataMaxIdleConns
+  LogsMaxOpenConns int // default to core.DefaultLogsMaxOpenConns
+  LogsMaxIdleConns int // default to core.DefaultLogsMaxIdleConns
+  ```
+
+- Added new helper method `core.App.IsBootstrapped()` to check the current app bootstrap state.
+
+- ! Changed `core.NewBaseApp(dir, encryptionEnv, isDebug)` to `NewBaseApp(config *BaseAppConfig)`.
+
+- ! Removed `rest.UploadedFile` struct (see below `filesystem.File`).
+
+- Added generic file resource struct that allows loading and uploading file content from
+  different sources (at the moment multipart/form-data requests and from the local filesystem).
+  ```
+  filesystem.File{}
+  filesystem.NewFileFromPath(path)
+  filesystem.NewFileFromMultipart(multipartHeader)
+  filesystem/System.UploadFile(file)
+  ```
+
+- Refactored `forms.RecordUpsert` to allow more easily loading and removing files programmatically.
+  ```
+  forms.RecordUpsert.AddFiles(key, filesystem.File...) // add new filesystem.File to the form for upload
+  forms.RecordUpsert.RemoveFiles(key, filenames...)     // marks the filenames for deletion
+  ```
+
+- Trigger the `password` validators if any of the others password change fields is set.
+
+
 ## v0.9.2
 
 - Fixed field column name conflict on record deletion ([#1220](https://github.com/pocketbase/pocketbase/discussions/1220)).
@@ -36,7 +74,7 @@
 
 - Replaced `c.QueryString()` with `c.QueryParams().Encode()` to allow loading middleware modified query parameters in the default crud actions ([#1210](https://github.com/pocketbase/pocketbase/discussions/1210)).
 
-- Fixed the datetime field not triggerering the `onChange` event on manual field edit and added a "Clear" button ([#1219](https://github.com/pocketbase/pocketbase/issues/1219)).
+- Fixed the datetime field not triggering the `onChange` event on manual field edit and added a "Clear" button ([#1219](https://github.com/pocketbase/pocketbase/issues/1219)).
 
 - Updated the GitHub goreleaser action to use go 1.19.4 since it comes with [some security fixes](https://github.com/golang/go/issues?q=milestone%3AGo1.19.4+label%3ACherryPickApproved).
 
@@ -96,10 +134,10 @@
   ```
 
 - Refactored the `migrate` command to support **external JavaScript migration files** using an embedded JS interpreter ([goja](https://github.com/dop251/goja)).
-  This allow writting custom migration scripts such as programmatically creating collections,
+  This allow writing custom migration scripts such as programmatically creating collections,
   initializing default settings, running data imports, etc., with a JavaScript API very similar to the Go one (_more documentation will be available soon_).
 
-  The `migrate` command is available by default for the prebult executable,
+  The `migrate` command is available by default for the prebuilt executable,
   but if you use PocketBase as framework you need register it manually:
   ```go
   migrationsDir := "" // default to "pb_migrations" (for js) and "migrations" (for go)
@@ -200,7 +238,7 @@ In addition to the `Users` and `profiles` merge, this release comes with several
 
 - The `json` field type now supports filtering and sorting [#423](https://github.com/pocketbase/pocketbase/issues/423#issuecomment-1258302125).
 
-- The `relation` field now allows unlimitted `maxSelect` (aka. without upper limit).
+- The `relation` field now allows unlimited `maxSelect` (aka. without upper limit).
 
 - Added support for combined email/username + password authentication (see below `authWithPassword()`).
 
