@@ -16,6 +16,11 @@ import (
 
 // App defines the main PocketBase app interface.
 type App interface {
+	// Deprecated:
+	// This method may get removed in the near future.
+	// It is recommended to access the logs db instance from app.Dao().DB() or
+	// if you want more flexibility - app.Dao().ConcurrentDB() and app.Dao().NonconcurrentDB().
+	//
 	// DB returns the default app database instance.
 	DB() *dbx.DB
 
@@ -26,6 +31,11 @@ type App interface {
 	// trying to access the request logs table will result in error.
 	Dao() *daos.Dao
 
+	// Deprecated:
+	// This method may get removed in the near future.
+	// It is recommended to access the logs db instance from app.LogsDao().DB() or
+	// if you want more flexibility - app.LogsDao().ConcurrentDB() and app.LogsDao().NonconcurrentDB().
+	//
 	// LogsDB returns the app logs database instance.
 	LogsDB() *dbx.DB
 
@@ -68,8 +78,14 @@ type App interface {
 	// RefreshSettings reinitializes and reloads the stored application settings.
 	RefreshSettings() error
 
+	// IsBootstrapped checks if the application was initialized
+	// (aka. whether Bootstrap() was called).
+	IsBootstrapped() bool
+
 	// Bootstrap takes care for initializing the application
-	// (open db connections, load settings, etc.)
+	// (open db connections, load settings, etc.).
+	//
+	// It will call ResetBootstrapState() if the application was already bootstrapped.
 	Bootstrap() error
 
 	// ResetBootstrapState takes care for releasing initialized app resources

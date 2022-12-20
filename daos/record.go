@@ -1,11 +1,10 @@
 package daos
 
 import (
-	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
-	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/models"
@@ -216,7 +215,7 @@ func (dao *Dao) FindAuthRecordByToken(token string, baseTokenKey string) (*model
 	id, _ := unverifiedClaims["id"].(string)
 	collectionId, _ := unverifiedClaims["collectionId"].(string)
 	if id == "" || collectionId == "" {
-		return nil, errors.New("Missing or invalid token claims.")
+		return nil, errors.New("missing or invalid token claims")
 	}
 
 	record, err := dao.FindRecordById(collectionId, id)
@@ -243,8 +242,11 @@ func (dao *Dao) FindAuthRecordByToken(token string, baseTokenKey string) (*model
 // Returns an error if it is not an auth collection or the record is not found.
 func (dao *Dao) FindAuthRecordByEmail(collectionNameOrId string, email string) (*models.Record, error) {
 	collection, err := dao.FindCollectionByNameOrId(collectionNameOrId)
-	if err != nil || !collection.IsAuth() {
-		return nil, errors.New("Missing or not an auth collection.")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch auth collection %q (%w)", collectionNameOrId, err)
+	}
+	if !collection.IsAuth() {
+		return nil, fmt.Errorf("%q is not an auth collection", collectionNameOrId)
 	}
 
 	row := dbx.NullStringMap{}
@@ -266,8 +268,11 @@ func (dao *Dao) FindAuthRecordByEmail(collectionNameOrId string, email string) (
 // Returns an error if it is not an auth collection or the record is not found.
 func (dao *Dao) FindAuthRecordByUsername(collectionNameOrId string, username string) (*models.Record, error) {
 	collection, err := dao.FindCollectionByNameOrId(collectionNameOrId)
-	if err != nil || !collection.IsAuth() {
-		return nil, errors.New("Missing or not an auth collection.")
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch auth collection %q (%w)", collectionNameOrId, err)
+	}
+	if !collection.IsAuth() {
+		return nil, fmt.Errorf("%q is not an auth collection", collectionNameOrId)
 	}
 
 	row := dbx.NullStringMap{}
@@ -344,10 +349,10 @@ func (dao *Dao) SaveRecord(record *models.Record) error {
 // DeleteRecord deletes the provided Record model.
 //
 // This method will also cascade the delete operation to all linked
-// relational records (delete or set to NULL, depending on the rel settings).
+// relational records (delete or unset, depending on the rel settings).
 //
 // The delete operation may fail if the record is part of a required
-// reference in another record (aka. cannot be deleted or set to NULL).
+// reference in another record (aka. cannot be deleted or unset).
 func (dao *Dao) DeleteRecord(record *models.Record) error {
 	// fetch rel references (if any)
 	//
@@ -358,234 +363,155 @@ func (dao *Dao) DeleteRecord(record *models.Record) error {
 		return err
 	}
 
-	// run all consequent DeleteRecord requests synchroniously
-	// to minimize SQLITE_BUSY errors
-	if len(refs) > 0 {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		if err := dao.Block(ctx); err != nil {
-			return err
-		}
-		defer dao.Continue()
-	}
-
 	return dao.RunInTransaction(func(txDao *Dao) error {
-		// always delete the record first to ensure that there will be no "A<->B"
-		// relations to prevent deadlock when calling DeleteRecord recursively
+		// manually trigger delete on any linked external auth to ensure
+		// that the `OnModel*` hooks are triggered
+		if record.Collection().IsAuth() {
+			// note: the select is outside of the transaction to minimize
+			// SQLITE_BUSY errors when mixing read&write in a single transaction
+			externalAuths, err := dao.FindAllExternalAuthsByRecord(record)
+			if err != nil {
+				return err
+			}
+			for _, auth := range externalAuths {
+				if err := txDao.DeleteExternalAuth(auth); err != nil {
+					return err
+				}
+			}
+		}
+
+		// delete the record before the relation references to ensure that there
+		// will be no "A<->B" relations to prevent deadlock when calling DeleteRecord recursively
 		if err := txDao.Delete(record); err != nil {
 			return err
 		}
 
-		// check if related records has to be deleted (if `CascadeDelete` is set)
-		// OR
-		// just unset the record id from any relation field values (if they are not required)
-		uniqueJsonEachAlias := "__je__" + security.PseudorandomString(5)
-		for refCollection, fields := range refs {
-			for _, field := range fields {
-				options, _ := field.Options.(*schema.RelationOptions)
-
-				rows := []dbx.NullStringMap{}
-
-				// fetch all referenced records
-				recordTableName := inflector.Columnify(refCollection.Name)
-				prefixedFieldName := recordTableName + "." + inflector.Columnify(field.Name)
-				err := txDao.RecordQuery(refCollection).
-					Distinct(true).
-					LeftJoin(fmt.Sprintf(
-						// note: the case is used to normalize value access for single and multiple relations.
-						`json_each(CASE WHEN json_valid([[%s]]) THEN [[%s]] ELSE json_array([[%s]]) END) as {{%s}}`,
-						prefixedFieldName, prefixedFieldName, prefixedFieldName, uniqueJsonEachAlias,
-					), nil).
-					AndWhere(dbx.Not(dbx.HashExp{recordTableName + ".id": record.Id})).
-					AndWhere(dbx.HashExp{uniqueJsonEachAlias + ".value": record.Id}).
-					All(&rows)
-				if err != nil {
-					return err
-				}
-
-				refRecords := models.NewRecordsFromNullStringMaps(refCollection, rows)
-				for _, refRecord := range refRecords {
-					ids := refRecord.GetStringSlice(field.Name)
-
-					// unset the record id
-					for i := len(ids) - 1; i >= 0; i-- {
-						if ids[i] == record.Id {
-							ids = append(ids[:i], ids[i+1:]...)
-							break
-						}
-					}
-
-					// cascade delete the reference
-					// (only if there are no other active references in case of multiple select)
-					if options.CascadeDelete && len(ids) == 0 {
-						if err := txDao.DeleteRecord(refRecord); err != nil {
-							return err
-						}
-						// no further actions are needed (the reference is deleted)
-						continue
-					}
-
-					if field.Required && len(ids) == 0 {
-						return fmt.Errorf("The record cannot be deleted because it is part of a required reference in record %s (%s collection).", refRecord.Id, refCollection.Name)
-					}
-
-					// save the reference changes
-					refRecord.Set(field.Name, field.PrepareValue(ids))
-					if err := txDao.SaveRecord(refRecord); err != nil {
-						return err
-					}
-				}
-			}
-		}
-
-		// delete linked external auths
-		if record.Collection().IsAuth() {
-			_, err = txDao.DB().Delete((&models.ExternalAuth{}).TableName(), dbx.HashExp{
-				"collectionId": record.Collection().Id,
-				"recordId":     record.Id,
-			}).Execute()
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
+		return txDao.cascadeRecordDelete(record, refs)
 	})
 }
 
-// SyncRecordTableSchema compares the two provided collections
-// and applies the necessary related record table changes.
+// cascadeRecordDelete triggers cascade deletion for the provided references
+// and split the work to a batched set of go routines.
 //
-// If `oldCollection` is null, then only `newCollection` is used to create the record table.
-func (dao *Dao) SyncRecordTableSchema(newCollection *models.Collection, oldCollection *models.Collection) error {
-	// create
-	if oldCollection == nil {
-		cols := map[string]string{
-			schema.FieldNameId:      "TEXT PRIMARY KEY",
-			schema.FieldNameCreated: "TEXT DEFAULT '' NOT NULL",
-			schema.FieldNameUpdated: "TEXT DEFAULT '' NOT NULL",
-		}
+// NB! This method is expected to be called inside a transaction.
+func (dao *Dao) cascadeRecordDelete(mainRecord *models.Record, refs map[*models.Collection][]*schema.SchemaField) error {
+	uniqueJsonEachAlias := "__je__" + security.PseudorandomString(4)
 
-		if newCollection.IsAuth() {
-			cols[schema.FieldNameUsername] = "TEXT NOT NULL"
-			cols[schema.FieldNameEmail] = "TEXT DEFAULT '' NOT NULL"
-			cols[schema.FieldNameEmailVisibility] = "BOOLEAN DEFAULT FALSE NOT NULL"
-			cols[schema.FieldNameVerified] = "BOOLEAN DEFAULT FALSE NOT NULL"
-			cols[schema.FieldNameTokenKey] = "TEXT NOT NULL"
-			cols[schema.FieldNamePasswordHash] = "TEXT NOT NULL"
-			cols[schema.FieldNameLastResetSentAt] = "TEXT DEFAULT '' NOT NULL"
-			cols[schema.FieldNameLastVerificationSentAt] = "TEXT DEFAULT '' NOT NULL"
-		}
+	for refCollection, fields := range refs {
+		for _, field := range fields {
+			recordTableName := inflector.Columnify(refCollection.Name)
+			prefixedFieldName := recordTableName + "." + inflector.Columnify(field.Name)
+			query := dao.RecordQuery(refCollection).
+				Distinct(true).
+				LeftJoin(fmt.Sprintf(
+					// note: the case is used to normalize value access for single and multiple relations.
+					`json_each(CASE WHEN json_valid([[%s]]) THEN [[%s]] ELSE json_array([[%s]]) END) as {{%s}}`,
+					prefixedFieldName, prefixedFieldName, prefixedFieldName, uniqueJsonEachAlias,
+				), nil).
+				AndWhere(dbx.Not(dbx.HashExp{recordTableName + ".id": mainRecord.Id})).
+				AndWhere(dbx.HashExp{uniqueJsonEachAlias + ".value": mainRecord.Id})
 
-		// ensure that the new collection has an id
-		if !newCollection.HasId() {
-			newCollection.RefreshId()
-			newCollection.MarkAsNew()
-		}
+			// trigger cascade for each 1000 rel items until there is none
+			batchSize := 1000
+			for {
+				rows := make([]dbx.NullStringMap, 0, batchSize)
+				if err := query.Limit(int64(batchSize)).All(&rows); err != nil {
+					return err
+				}
 
-		tableName := newCollection.Name
+				total := len(rows)
+				if total == 0 {
+					break
+				}
 
-		// add schema field definitions
-		for _, field := range newCollection.Schema.Fields() {
-			cols[field.Name] = field.ColDefinition()
-		}
+				perWorker := 50
+				workers := int(math.Ceil(float64(total) / float64(perWorker)))
 
-		// create table
-		if _, err := dao.DB().CreateTable(tableName, cols).Execute(); err != nil {
-			return err
-		}
+				batchErr := func() error {
+					ch := make(chan error)
+					defer close(ch)
 
-		// add named index on the base `created` column
-		if _, err := dao.DB().CreateIndex(tableName, "_"+newCollection.Id+"_created_idx", "created").Execute(); err != nil {
-			return err
-		}
+					for i := 0; i < workers; i++ {
+						var chunks []dbx.NullStringMap
+						if len(rows) <= perWorker {
+							chunks = rows
+							rows = nil
+						} else {
+							chunks = rows[:perWorker]
+							rows = rows[perWorker:]
+						}
 
-		// add named unique index on the email and tokenKey columns
-		if newCollection.IsAuth() {
-			_, err := dao.DB().NewQuery(fmt.Sprintf(
-				`
-				CREATE UNIQUE INDEX _%s_username_idx ON {{%s}} ([[username]]);
-				CREATE UNIQUE INDEX _%s_email_idx ON {{%s}} ([[email]]) WHERE [[email]] != '';
-				CREATE UNIQUE INDEX _%s_tokenKey_idx ON {{%s}} ([[tokenKey]]);
-				`,
-				newCollection.Id, tableName,
-				newCollection.Id, tableName,
-				newCollection.Id, tableName,
-			)).Execute()
-			if err != nil {
-				return err
+						go func() {
+							refRecords := models.NewRecordsFromNullStringMaps(refCollection, chunks)
+							ch <- dao.deleteRefRecords(mainRecord, refRecords, field)
+						}()
+					}
+
+					for i := 0; i < workers; i++ {
+						if err := <-ch; err != nil {
+							return err
+						}
+					}
+
+					return nil
+				}()
+
+				if batchErr != nil {
+					return batchErr
+				}
+
+				if total < batchSize {
+					break // no more items
+				}
 			}
 		}
-
-		return nil
 	}
 
-	// update
-	return dao.RunInTransaction(func(txDao *Dao) error {
-		oldTableName := oldCollection.Name
-		newTableName := newCollection.Name
-		oldSchema := oldCollection.Schema
-		newSchema := newCollection.Schema
+	return nil
+}
 
-		// check for renamed table
-		if !strings.EqualFold(oldTableName, newTableName) {
-			_, err := txDao.DB().RenameTable(oldTableName, newTableName).Execute()
-			if err != nil {
+// deleteRefRecords checks if related records has to be deleted (if `CascadeDelete` is set)
+// OR
+// just unset the record id from any relation field values (if they are not required).
+//
+// NB! This method is expected to be called inside a transaction.
+func (dao *Dao) deleteRefRecords(mainRecord *models.Record, refRecords []*models.Record, field *schema.SchemaField) error {
+	options, _ := field.Options.(*schema.RelationOptions)
+	if options == nil {
+		return errors.New("relation field options are not initialized")
+	}
+
+	for _, refRecord := range refRecords {
+		ids := refRecord.GetStringSlice(field.Name)
+
+		// unset the record id
+		for i := len(ids) - 1; i >= 0; i-- {
+			if ids[i] == mainRecord.Id {
+				ids = append(ids[:i], ids[i+1:]...)
+				break
+			}
+		}
+
+		// cascade delete the reference
+		// (only if there are no other active references in case of multiple select)
+		if options.CascadeDelete && len(ids) == 0 {
+			if err := dao.DeleteRecord(refRecord); err != nil {
 				return err
 			}
+			// no further actions are needed (the reference is deleted)
+			continue
 		}
 
-		// check for deleted columns
-		for _, oldField := range oldSchema.Fields() {
-			if f := newSchema.GetFieldById(oldField.Id); f != nil {
-				continue // exist
-			}
-
-			_, err := txDao.DB().DropColumn(newTableName, oldField.Name).Execute()
-			if err != nil {
-				return err
-			}
+		if field.Required && len(ids) == 0 {
+			return fmt.Errorf("the record cannot be deleted because it is part of a required reference in record %s (%s collection)", refRecord.Id, refRecord.Collection().Name)
 		}
 
-		// check for new or renamed columns
-		toRename := map[string]string{}
-		for _, field := range newSchema.Fields() {
-			oldField := oldSchema.GetFieldById(field.Id)
-			// Note:
-			// We are using a temporary column name when adding or renaming columns
-			// to ensure that there are no name collisions in case there is
-			// names switch/reuse of existing columns (eg. name, title -> title, name).
-			// This way we are always doing 1 more rename operation but it provides better dev experience.
-
-			if oldField == nil {
-				tempName := field.Name + security.PseudorandomString(5)
-				toRename[tempName] = field.Name
-
-				// add
-				_, err := txDao.DB().AddColumn(newTableName, tempName, field.ColDefinition()).Execute()
-				if err != nil {
-					return err
-				}
-			} else if oldField.Name != field.Name {
-				tempName := field.Name + security.PseudorandomString(5)
-				toRename[tempName] = field.Name
-
-				// rename
-				_, err := txDao.DB().RenameColumn(newTableName, oldField.Name, tempName).Execute()
-				if err != nil {
-					return err
-				}
-			}
+		// save the reference changes
+		refRecord.Set(field.Name, field.PrepareValue(ids))
+		if err := dao.SaveRecord(refRecord); err != nil {
+			return err
 		}
+	}
 
-		// set the actual columns name
-		for tempName, actualName := range toRename {
-			_, err := txDao.DB().RenameColumn(newTableName, tempName, actualName).Execute()
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
+	return nil
 }

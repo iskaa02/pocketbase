@@ -21,21 +21,30 @@ import (
 	"github.com/pocketbase/pocketbase/tools/subscriptions"
 )
 
+const (
+	DefaultDataMaxOpenConns int = 100
+	DefaultDataMaxIdleConns int = 20
+	DefaultLogsMaxOpenConns int = 10
+	DefaultLogsMaxIdleConns int = 2
+)
+
 var _ App = (*BaseApp)(nil)
 
 // BaseApp implements core.App and defines the base PocketBase app structure.
 type BaseApp struct {
 	// configurable parameters
-	isDebug       bool
-	dataDir       string
-	encryptionEnv string
+	isDebug          bool
+	dataDir          string
+	encryptionEnv    string
+	dataMaxOpenConns int
+	dataMaxIdleConns int
+	logsMaxOpenConns int
+	logsMaxIdleConns int
 
 	// internals
 	cache               *store.Store[any]
 	settings            *settings.Settings
-	db                  *dbx.DB
 	dao                 *daos.Dao
-	logsDB              *dbx.DB
 	logsDao             *daos.Dao
 	subscriptionsBroker *subscriptions.Broker
 
@@ -143,15 +152,30 @@ type BaseApp struct {
 	onViewAfterDeleteRequest     *hook.Hook[*ViewDeleteEvent]
 }
 
+// BaseAppConfig defines a BaseApp configuration option
+type BaseAppConfig struct {
+	DataDir          string
+	EncryptionEnv    string
+	IsDebug          bool
+	DataMaxOpenConns int // default to 500
+	DataMaxIdleConns int // default 20
+	LogsMaxOpenConns int // default to 100
+	LogsMaxIdleConns int // default to 5
+}
+
 // NewBaseApp creates and returns a new BaseApp instance
 // configured with the provided arguments.
 //
 // To initialize the app, you need to call `app.Bootstrap()`.
-func NewBaseApp(dataDir string, encryptionEnv string, isDebug bool) *BaseApp {
+func NewBaseApp(config *BaseAppConfig) *BaseApp {
 	app := &BaseApp{
-		dataDir:             dataDir,
-		isDebug:             isDebug,
-		encryptionEnv:       encryptionEnv,
+		dataDir:             config.DataDir,
+		isDebug:             config.IsDebug,
+		encryptionEnv:       config.EncryptionEnv,
+		dataMaxOpenConns:    config.DataMaxOpenConns,
+		dataMaxIdleConns:    config.DataMaxIdleConns,
+		logsMaxOpenConns:    config.LogsMaxOpenConns,
+		logsMaxIdleConns:    config.LogsMaxIdleConns,
 		cache:               store.New[any](nil),
 		settings:            settings.New(),
 		subscriptionsBroker: subscriptions.NewBroker(),
@@ -265,8 +289,16 @@ func NewBaseApp(dataDir string, encryptionEnv string, isDebug bool) *BaseApp {
 	return app
 }
 
+// IsBootstrapped checks if the application was initialized
+// (aka. whether Bootstrap() was called).
+func (app *BaseApp) IsBootstrapped() bool {
+	return app.dao != nil && app.logsDao != nil && app.settings != nil
+}
+
 // Bootstrap initializes the application
-// (aka. create data dir, open db connections, load settings, etc.)
+// (aka. create data dir, open db connections, load settings, etc.).
+//
+// It will call ResetBootstrapState() if the application was already bootstrapped.
 func (app *BaseApp) Bootstrap() error {
 	event := &BootstrapEvent{app}
 
@@ -305,14 +337,20 @@ func (app *BaseApp) Bootstrap() error {
 // ResetBootstrapState takes care for releasing initialized app resources
 // (eg. closing db connections).
 func (app *BaseApp) ResetBootstrapState() error {
-	if app.db != nil {
-		if err := app.db.Close(); err != nil {
+	if app.Dao() != nil {
+		if err := app.Dao().ConcurrentDB().(*dbx.DB).Close(); err != nil {
+			return err
+		}
+		if err := app.Dao().NonconcurrentDB().(*dbx.DB).Close(); err != nil {
 			return err
 		}
 	}
 
-	if app.logsDB != nil {
-		if err := app.logsDB.Close(); err != nil {
+	if app.LogsDao() != nil {
+		if err := app.LogsDao().ConcurrentDB().(*dbx.DB).Close(); err != nil {
+			return err
+		}
+		if err := app.LogsDao().NonconcurrentDB().(*dbx.DB).Close(); err != nil {
 			return err
 		}
 	}
@@ -324,9 +362,23 @@ func (app *BaseApp) ResetBootstrapState() error {
 	return nil
 }
 
+// Deprecated:
+// This method may get removed in the near future.
+// It is recommended to access the db instance from app.Dao().DB() or
+// if you want more flexibility - app.Dao().ConcurrentDB() and app.Dao().NonconcurrentDB().
+//
 // DB returns the default app database instance.
 func (app *BaseApp) DB() *dbx.DB {
-	return app.db
+	if app.Dao() == nil {
+		return nil
+	}
+
+	db, ok := app.Dao().DB().(*dbx.DB)
+	if !ok {
+		return nil
+	}
+
+	return db
 }
 
 // Dao returns the default app Dao instance.
@@ -334,9 +386,23 @@ func (app *BaseApp) Dao() *daos.Dao {
 	return app.dao
 }
 
+// Deprecated:
+// This method may get removed in the near future.
+// It is recommended to access the logs db instance from app.LogsDao().DB() or
+// if you want more flexibility - app.LogsDao().ConcurrentDB() and app.LogsDao().NonconcurrentDB().
+//
 // LogsDB returns the app logs database instance.
 func (app *BaseApp) LogsDB() *dbx.DB {
-	return app.logsDB
+	if app.LogsDao() == nil {
+		return nil
+	}
+
+	db, ok := app.LogsDao().DB().(*dbx.DB)
+	if !ok {
+		return nil
+	}
+
+	return db
 }
 
 // LogsDao returns the app logs Dao instance.
@@ -380,13 +446,14 @@ func (app *BaseApp) SubscriptionsBroker() *subscriptions.Broker {
 // based on the current app settings.
 func (app *BaseApp) NewMailClient() mailer.Mailer {
 	if app.Settings().Smtp.Enabled {
-		return mailer.NewSmtpClient(
-			app.Settings().Smtp.Host,
-			app.Settings().Smtp.Port,
-			app.Settings().Smtp.Username,
-			app.Settings().Smtp.Password,
-			app.Settings().Smtp.Tls,
-		)
+		return &mailer.SmtpClient{
+			Host:       app.Settings().Smtp.Host,
+			Port:       app.Settings().Smtp.Port,
+			Username:   app.Settings().Smtp.Username,
+			Password:   app.Settings().Smtp.Password,
+			Tls:        app.Settings().Smtp.Tls,
+			AuthMethod: app.Settings().Smtp.AuthMethod,
+		}
 	}
 
 	return &mailer.Sendmail{}
@@ -812,41 +879,81 @@ func (app *BaseApp) OnViewAfterDeleteRequest() *hook.Hook[*ViewDeleteEvent] {
 // -------------------------------------------------------------------
 
 func (app *BaseApp) initLogsDB() error {
-	var connectErr error
-	app.logsDB, connectErr = connectDB(filepath.Join(app.DataDir(), "logs.db"))
-	if connectErr != nil {
-		return connectErr
+	maxOpenConns := DefaultLogsMaxOpenConns
+	maxIdleConns := DefaultLogsMaxIdleConns
+	if app.logsMaxOpenConns > 0 {
+		maxOpenConns = app.logsMaxOpenConns
+	}
+	if app.logsMaxIdleConns > 0 {
+		maxIdleConns = app.logsMaxIdleConns
 	}
 
-	app.logsDao = daos.New(app.logsDB)
+	concurrentDB, err := connectDB(filepath.Join(app.DataDir(), "logs.db"))
+	if err != nil {
+		return err
+	}
+	concurrentDB.DB().SetMaxOpenConns(maxOpenConns)
+	concurrentDB.DB().SetMaxIdleConns(maxIdleConns)
+	concurrentDB.DB().SetConnMaxIdleTime(5 * time.Minute)
+
+	nonconcurrentDB, err := connectDB(filepath.Join(app.DataDir(), "logs.db"))
+	if err != nil {
+		return err
+	}
+	nonconcurrentDB.DB().SetMaxOpenConns(1)
+	nonconcurrentDB.DB().SetMaxIdleConns(1)
+	nonconcurrentDB.DB().SetConnMaxIdleTime(5 * time.Minute)
+
+	app.logsDao = daos.NewMultiDB(concurrentDB, nonconcurrentDB)
 
 	return nil
 }
 
 func (app *BaseApp) initDataDB() error {
-	var connectErr error
-	app.db, connectErr = connectDB(filepath.Join(app.DataDir(), "data.db"))
-	if connectErr != nil {
-		return connectErr
+	maxOpenConns := DefaultDataMaxOpenConns
+	maxIdleConns := DefaultDataMaxIdleConns
+	if app.dataMaxOpenConns > 0 {
+		maxOpenConns = app.dataMaxOpenConns
 	}
+	if app.dataMaxIdleConns > 0 {
+		maxIdleConns = app.dataMaxIdleConns
+	}
+
+	concurrentDB, err := connectDB(filepath.Join(app.DataDir(), "data.db"))
+	if err != nil {
+		return err
+	}
+	concurrentDB.DB().SetMaxOpenConns(maxOpenConns)
+	concurrentDB.DB().SetMaxIdleConns(maxIdleConns)
+	concurrentDB.DB().SetConnMaxIdleTime(5 * time.Minute)
+
+	nonconcurrentDB, err := connectDB(filepath.Join(app.DataDir(), "data.db"))
+	if err != nil {
+		return err
+	}
+	nonconcurrentDB.DB().SetMaxOpenConns(1)
+	nonconcurrentDB.DB().SetMaxIdleConns(1)
+	nonconcurrentDB.DB().SetConnMaxIdleTime(5 * time.Minute)
 
 	if app.IsDebug() {
-		app.db.QueryLogFunc = func(ctx context.Context, t time.Duration, sql string, rows *sql.Rows, err error) {
+		nonconcurrentDB.QueryLogFunc = func(ctx context.Context, t time.Duration, sql string, rows *sql.Rows, err error) {
 			color.HiBlack("[%.2fms] %v\n", float64(t.Milliseconds()), sql)
 		}
+		concurrentDB.QueryLogFunc = nonconcurrentDB.QueryLogFunc
 
-		app.db.ExecLogFunc = func(ctx context.Context, t time.Duration, sql string, result sql.Result, err error) {
+		nonconcurrentDB.ExecLogFunc = func(ctx context.Context, t time.Duration, sql string, result sql.Result, err error) {
 			color.HiBlack("[%.2fms] %v\n", float64(t.Milliseconds()), sql)
 		}
+		concurrentDB.ExecLogFunc = nonconcurrentDB.ExecLogFunc
 	}
 
-	app.dao = app.createDaoWithHooks(app.db)
+	app.dao = app.createDaoWithHooks(concurrentDB, nonconcurrentDB)
 
 	return nil
 }
 
-func (app *BaseApp) createDaoWithHooks(db dbx.Builder) *daos.Dao {
-	dao := daos.New(db)
+func (app *BaseApp) createDaoWithHooks(concurrentDB, nonconcurrentDB dbx.Builder) *daos.Dao {
+	dao := daos.NewMultiDB(concurrentDB, nonconcurrentDB)
 
 	dao.BeforeCreateFunc = func(eventDao *daos.Dao, m models.Model) error {
 		return app.OnModelBeforeCreate().Trigger(&ModelEvent{eventDao, m})
