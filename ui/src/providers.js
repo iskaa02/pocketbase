@@ -52,4 +52,12 @@ export default {
         title: "Twitch",
         icon:  "ri-twitch-fill",
     },
+    stravaAuth: {
+        title: "Strava",
+        icon:  "ri-riding-fill",
+    },
+    giteeAuth: {
+        title: "Gitee",
+        icon:  "ri-git-repository-fill",
+    },
 };
