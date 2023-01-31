@@ -151,7 +151,7 @@ func (form *ViewUpsert) checkSqlValid(value any) error {
 //
 // You can optionally provide a list of InterceptorFunc to further
 // modify the form behavior before persisting it.
-func (form *ViewUpsert) Submit(interceptors ...InterceptorFunc) error {
+func (form *ViewUpsert) Submit(interceptors ...InterceptorFunc[*models.View]) error {
 	if err := form.Validate(); err != nil {
 		return err
 	}
@@ -169,17 +169,19 @@ func (form *ViewUpsert) Submit(interceptors ...InterceptorFunc) error {
 	form.view.ListRule = form.ListRule
 	form.view.Sql = form.Sql
 
-	return runInterceptors(func() error {
+	return runInterceptors(form.view, func(view *models.View) error {
+		form.view = view
 		var err error
 		form.config.Dao.RunInTransaction(func(txDao *daos.Dao) error {
 			var view *models.View
-			view, err = form.config.Dao.SaveView(form.view)
+			view, err = txDao.SaveView(form.view)
+
 			if err != nil {
 				return err
 			}
 			// ListRule cannot be checked before the view is created
 			// because the schema is dynamically generated
-			err = checkViewListRule(view, form.config.Dao)
+			err = checkViewListRule(view, txDao)
 			return err
 		})
 		return err
