@@ -52,9 +52,8 @@ func (api *ViewApi) list(c echo.Context) error {
 
 	requestData := RequestData(c)
 
-
 	fieldsResolver := resolvers.NewRecordFieldResolver(api.app.Dao(), &models.Collection{Schema: v.Schema, Name: v.Name},
-		 requestData,false)
+		requestData, false)
 
 	searchProvider := search.NewProvider(fieldsResolver).
 		Query(api.app.Dao().RecordFromViewQuery(v))
@@ -126,16 +125,16 @@ func (api *ViewApi) create(c echo.Context) error {
 		return NewBadRequestError("Failed to load the submitted data due to invalid formatting.", err)
 	}
 
-	event := &core.ViewCreateEvent{
-		HttpContext: c,
-		View:        v,
-	}
+	event := new(core.ViewCreateEvent)
+	event.HttpContext = c
+	event.View = v
 
 	// create the view
-	submitErr := form.Submit(func(next forms.InterceptorNextFunc) forms.InterceptorNextFunc {
-		return func() error {
+	submitErr := form.Submit(func(next forms.InterceptorNextFunc[*models.View]) forms.InterceptorNextFunc[*models.View] {
+		return func(m *models.View) error {
+			event.View = m
 			return api.app.OnViewBeforeCreateRequest().Trigger(event, func(e *core.ViewCreateEvent) error {
-				if err := next(); err != nil {
+				if err := next(e.View); err != nil {
 					return NewBadRequestError("Failed to create the view.", err)
 				}
 
@@ -170,10 +169,10 @@ func (api *ViewApi) update(c echo.Context) error {
 	}
 
 	// update the view
-	submitErr := form.Submit(func(next forms.InterceptorNextFunc) forms.InterceptorNextFunc {
-		return func() error {
+	submitErr := form.Submit(func(next forms.InterceptorNextFunc[*models.View]) forms.InterceptorNextFunc[*models.View] {
+		return func(view *models.View) error {
 			return api.app.OnViewBeforeUpdateRequest().Trigger(event, func(e *core.ViewUpdateEvent) error {
-				if err := next(); err != nil {
+				if err := next(view); err != nil {
 					return NewBadRequestError("Failed to update the view.", err)
 				}
 
