@@ -25,7 +25,7 @@ import (
 )
 
 // username value regex pattern
-var usernameRegex = regexp.MustCompile(`^[\w][\w\.]*$`)
+var usernameRegex = regexp.MustCompile(`^[\d+][\d\.]*$`)
 
 // RecordUpsert is a [models.Record] upsert (create/update) form.
 type RecordUpsert struct {
@@ -384,7 +384,7 @@ func (form *RecordUpsert) LoadData(requestData map[string]any) error {
 	requestData = form.record.ReplaceModifers(requestData)
 
 	// create a shallow copy of form.data
-	var extendedData = make(map[string]any, len(form.data))
+	extendedData := make(map[string]any, len(form.data))
 	for k, v := range form.data {
 		extendedData[k] = v
 	}
