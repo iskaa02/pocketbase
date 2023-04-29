@@ -1,6 +1,76 @@
+## v0.15.2
+
+- Fixed View query `SELECT DISTINCT` identifiers parsing ([#2349-5706019](https://github.com/pocketbase/pocketbase/discussions/2349#discussioncomment-5706019)).
+
+- Fixed View collection schema incorrectly resolving multiple aliased fields originating from the same field source ([#2349-5707675](https://github.com/pocketbase/pocketbase/discussions/2349#discussioncomment-5707675)).
+
+- Added OAuth2 redirect fallback message to notify the user to go back to the app in case the browser window is not auto closed.
+
+
+## v0.15.1
+
+- Trigger the related `Record` model realtime subscription events on [custom model struct](https://pocketbase.io/docs/custom-models/) save ([#2325](https://github.com/pocketbase/pocketbase/discussions/2325)).
+
+- Fixed `Ctrl + S` in the `editor` field not propagating the quick save shortcut to the parent form.
+
+- Added `⌘ + S` alias for the record quick save shortcut (_I have no Mac device to test it but it should work based on [`e.metaKey` docs](https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/metaKey)_).
+
+- Enabled RTL for the TinyMCE editor ([#2327](https://github.com/pocketbase/pocketbase/issues/2327)).
+
+- Reduced the record form vertical layout shifts and slightly improved the rendering speed when loading multiple `relation` fields.
+
+- Enabled Admin UI assets cache.
+
+
+## v0.15.0
+
+- Simplified the OAuth2 authentication flow in a single "all in one" call ([#55](https://github.com/pocketbase/pocketbase/issues/55)).
+  Requires JS SDK v0.14.0+ or Dart SDK v0.9.0+.
+  The manual code-token exchange flow is still supported but the SDK methods is renamed to `authWithOAuth2Code()` (_to minimize the breaking changes the JS SDK has a function overload that will proxy the existing `authWithOauth2` calls to `authWithOAuth2Code`_).
+  For more details and example, you could check https://pocketbase.io/docs/authentication/#oauth2-integration.
+
+- Added support for protected files ([#215](https://github.com/pocketbase/pocketbase/issues/215)).
+  Requires JS SDK v0.14.0+ or Dart SDK v0.9.0+.
+  It works with a short lived (~5min) file token passed as query param with the file url.
+  For more details and example, you could check https://pocketbase.io/docs/files-handling/#private-files.
+
+- **!** Fixed typo in `Record.WithUnkownData()` -> `Record.WithUnknownData()`.
+
+- Added simple loose wildcard search term support in the Admin UI.
+
+- Added auto "draft" to allow restoring previous record state in case of accidental reload or power outage.
+
+- Added `Ctrl + S` shortcut to save the record changes without closing the panel.
+
+- Added "drop files" support for the file upload field.
+
+- Refreshed the OAuth2 Admin UI.
+
+
+## v0.14.5
+
+- Added checks for `nil` hooks in `forms.RecordUpsert` when used with custom `Dao` ([#2277](https://github.com/pocketbase/pocketbase/issues/2277)).
+
+- Fixed unique detailed field error not returned on record create failure ([#2287](https://github.com/pocketbase/pocketbase/discussions/2287)).
+
+
+## v0.14.4
+
+- Fixed concurrent map write pannic on `list.ExistInSliceWithRegex()` cache ([#2272](https://github.com/pocketbase/pocketbase/issues/2272)).
+
+
+## v0.14.3
+
+- Fixed Admin UI Logs `meta` visualization in Firefox ([#2221](https://github.com/pocketbase/pocketbase/issues/2221)).
+
+- Downgraded to v1 of the `aws/aws-sdk-go` package since v2 has compatibility issues with GCS ([#2231](https://github.com/pocketbase/pocketbase/issues/2231)).
+
+- Upgraded the GitHub action to use [min Go 1.20.3](https://github.com/golang/go/issues?q=milestone%3AGo1.20.3+label%3ACherryPickApproved) for the prebuilt executable since it contains some minor `net/http` security fixes.
+
+
 ## v0.14.2
 
-- Reverted part of the old `COALESCE` handling to continue supporting empty string comparison with missing joined relation fields.
+- Reverted part of the old `COALESCE` handling as a fallback to support empty string comparison with missing joined relation fields.
 
 
 ## v0.14.1
@@ -1151,7 +1221,7 @@ Please check the individual SDK package changelog and apply the necessary change
 - Added option to return serialized custom `models.Record` fields data:
   ```go
   func (m *Record) UnknownData() map[string]any
-  func (m *Record) WithUnkownData(state bool)
+  func (m *Record) WithUnknownData(state bool)
   ```
 
 - Deleted `model.User`. Now the user data is stored as an auth `models.Record`.
