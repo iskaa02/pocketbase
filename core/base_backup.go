@@ -17,6 +17,7 @@ import (
 	"github.com/pocketbase/pocketbase/tools/archive"
 	"github.com/pocketbase/pocketbase/tools/cron"
 	"github.com/pocketbase/pocketbase/tools/filesystem"
+	"github.com/pocketbase/pocketbase/tools/osutils"
 	"github.com/pocketbase/pocketbase/tools/security"
 )
 
@@ -106,20 +107,18 @@ func (app *BaseApp) CreateBackup(ctx context.Context, name string) error {
 //  1. Download the backup with the specified name in a temp location
 //     (this is in case of S3; otherwise it creates a temp copy of the zip)
 //
-//  2. Extract the backup in a temp directory next to the app "pb_data"
-//     (eg. "pb_data/../pb_data_to_restore").
+//  2. Extract the backup in a temp directory inside the app "pb_data"
+//     (eg. "pb_data/.pb_temp_to_delete/pb_restore").
 //
-//  3. Move the current app "pb_data" under a special sub temp dir that
-//     will be deleted on the next app start up (eg. "pb_data_to_restore/.pb_temp_to_delete/").
-//     This is because on some operating systems it may not be allowed
+//  3. Move the current app "pb_data" content (excluding the local backups and the special temp dir)
+//     under another temp sub dir that will be deleted on the next app start up
+//     (eg. "pb_data/.pb_temp_to_delete/old_pb_data").
+//     This is because on some environments it may not be allowed
 //     to delete the currently open "pb_data" files.
 //
-//  4. Rename the extracted dir from step 1 as the new "pb_data".
+//  4. Move the extracted dir content to the app "pb_data".
 //
-//  5. Move from the old "pb_data" any local backups that may have been
-//     created previously to the new "pb_data/backups".
-//
-//  6. Restart the app (on successfull app bootstap it will also remove the old pb_data).
+//  5. Restart the app (on successfull app bootstap it will also remove the old pb_data).
 //
 // If a failure occure during the restore process the dir changes are reverted.
 // If for whatever reason the revert is not possible, it panics.
@@ -160,9 +159,13 @@ func (app *BaseApp) RestoreBackup(ctx context.Context, name string) error {
 		return err
 	}
 
-	parentDataDir := filepath.Dir(app.DataDir())
+	// make sure that the special temp directory
+	if err := os.MkdirAll(filepath.Join(app.DataDir(), LocalTempDirName), os.ModePerm); err != nil {
+		return fmt.Errorf("failed to create a temp dir: %w", err)
+	}
 
-	extractedDataDir := filepath.Join(parentDataDir, "pb_restore_"+security.PseudorandomString(4))
+	// note: it needs to be inside the current pb_data to avoid "cross-device link" errors
+	extractedDataDir := filepath.Join(app.DataDir(), LocalTempDirName, "pb_restore_"+security.PseudorandomString(4))
 	defer os.RemoveAll(extractedDataDir)
 	if err := archive.Extract(tempZip.Name(), extractedDataDir); err != nil {
 		return err
@@ -180,64 +183,37 @@ func (app *BaseApp) RestoreBackup(ctx context.Context, name string) error {
 		log.Println(err)
 	}
 
-	// make sure that a special temp directory exists in the extracted one
-	if err := os.MkdirAll(filepath.Join(extractedDataDir, LocalTempDirName), os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create a temp dir: %w", err)
-	}
+	// root dir entries to exclude from the backup restore
+	exclude := []string{LocalBackupsDirName, LocalTempDirName}
 
-	// move the current pb_data to a special temp location that will
-	// hold the old data between dirs replace
+	// move the current pb_data content to a special temp location
+	// that will hold the old data between dirs replace
 	// (the temp dir will be automatically removed on the next app start)
-	oldTempDataDir := filepath.Join(extractedDataDir, LocalTempDirName, "old_pb_data")
-	if err := os.Rename(app.DataDir(), oldTempDataDir); err != nil {
-		return fmt.Errorf("failed to move the current pb_data to a temp location: %w", err)
+	oldTempDataDir := filepath.Join(app.DataDir(), LocalTempDirName, "old_pb_data_"+security.PseudorandomString(4))
+	if err := osutils.MoveDirContent(app.DataDir(), oldTempDataDir, exclude...); err != nil {
+		return fmt.Errorf("failed to move the current pb_data content to a temp location: %w", err)
 	}
 
-	// "restore", aka. set the extracted backup as the new pb_data directory
-	if err := os.Rename(extractedDataDir, app.DataDir()); err != nil {
-		return fmt.Errorf("failed to set the extracted backup as pb_data dir: %w", err)
+	// move the extracted archive content to the app's pb_data
+	if err := osutils.MoveDirContent(extractedDataDir, app.DataDir(), exclude...); err != nil {
+		return fmt.Errorf("failed to move the extracted archive content to pb_data: %w", err)
 	}
 
-	// update the old temp data dir path after the restore
-	oldTempDataDir = filepath.Join(app.DataDir(), LocalTempDirName, "old_pb_data")
-
-	oldLocalBackupsDir := filepath.Join(oldTempDataDir, LocalBackupsDirName)
-	newLocalBackupsDir := filepath.Join(app.DataDir(), LocalBackupsDirName)
-
-	revertDataDirChanges := func(revertLocalBackupsDir bool) error {
-		if revertLocalBackupsDir {
-			if _, err := os.Stat(newLocalBackupsDir); err == nil {
-				if err := os.Rename(newLocalBackupsDir, oldLocalBackupsDir); err != nil {
-					return fmt.Errorf("failed to revert the backups dir change: %w", err)
-				}
-			}
-		}
-
-		if err := os.Rename(app.DataDir(), extractedDataDir); err != nil {
+	revertDataDirChanges := func() error {
+		if err := osutils.MoveDirContent(app.DataDir(), extractedDataDir, exclude...); err != nil {
 			return fmt.Errorf("failed to revert the extracted dir change: %w", err)
 		}
 
-		if err := os.Rename(oldTempDataDir, app.DataDir()); err != nil {
+		if err := osutils.MoveDirContent(oldTempDataDir, app.DataDir(), exclude...); err != nil {
 			return fmt.Errorf("failed to revert old pb_data dir change: %w", err)
 		}
 
 		return nil
 	}
 
-	// restore the local pb_data/backups dir (if any)
-	if _, err := os.Stat(oldLocalBackupsDir); err == nil {
-		if err := os.Rename(oldLocalBackupsDir, newLocalBackupsDir); err != nil {
-			if err := revertDataDirChanges(false); err != nil && app.IsDebug() {
-				log.Println(err)
-			}
-
-			return fmt.Errorf("failed to move the local pb_data/backups dir: %w", err)
-		}
-	}
-
 	// restart the app
 	if err := app.Restart(); err != nil {
-		if err := revertDataDirChanges(true); err != nil {
+		if err := revertDataDirChanges(); err != nil {
 			panic(err)
 		}
 
