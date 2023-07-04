@@ -80,7 +80,7 @@
 
         const files = e.dataTransfer?.files || [];
 
-        if (maxReached || !files.length || e.dataTransfer?.effectAllowed != "copy") {
+        if (maxReached || !files.length) {
             return;
         }
 
@@ -104,10 +104,7 @@
 
 <div
     class="block"
-    on:dragover|preventDefault={(e) => {
-        if (e.dataTransfer.effectAllowed != "copy") {
-            return; // not a file drag
-        }
+    on:dragover|preventDefault={() => {
         isDragOver = true;
     }}
     on:dragleave={() => {
@@ -184,7 +181,7 @@
                 </Draggable>
             {/each}
 
-            {#each uploadedFiles as file, i}
+            {#each uploadedFiles as file, i (file.name + i)}
                 <Draggable
                     bind:list={uploadedFiles}
                     group={field.name + "_new"}
