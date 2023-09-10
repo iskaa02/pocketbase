@@ -1,6 +1,5 @@
 <script>
     import { scale, slide } from "svelte/transition";
-    import { Collection } from "pocketbase";
     import { errors } from "@/stores/errors";
     import tooltip from "@/actions/tooltip";
     import Field from "@/components/base/Field.svelte";
@@ -8,9 +7,9 @@
     import MultipleValueInput from "@/components/base/MultipleValueInput.svelte";
     import Accordion from "@/components/base/Accordion.svelte";
 
-    export let collection = new Collection();
+    export let collection;
 
-    $: if (collection.$isAuth && CommonHelper.isEmpty(collection.options)) {
+    $: if (collection.type === "auth" && CommonHelper.isEmpty(collection.options)) {
         collection.options = {
             allowEmailAuth: true,
             allowUsernameAuth: true,
@@ -92,7 +91,7 @@
         </Field>
 
         {#if collection.options.allowEmailAuth}
-            <div class="grid grid-sm p-t-sm" transition:slide|local={{ duration: 150 }}>
+            <div class="grid grid-sm p-t-sm" transition:slide={{ duration: 150 }}>
                 <div class="col-lg-6">
                     <Field
                         class="form-field {!CommonHelper.isEmpty(collection.options.onlyEmailDomains)
@@ -179,9 +178,9 @@
         </Field>
 
         {#if collection.options.allowOAuth2Auth}
-            <div class="block" transition:slide|local={{ duration: 150 }}>
+            <div class="block" transition:slide={{ duration: 150 }}>
                 <div class="flex p-t-base">
-                    <a href="/_/#/settings/auth-providers" target="_blank" class="btn btn-sm btn-outline">
+                    <a href="#/settings/auth-providers" target="_blank" class="btn btn-sm btn-outline">
                         <span class="txt">Manage OAuth2 providers</span>
                     </a>
                 </div>

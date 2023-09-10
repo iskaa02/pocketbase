@@ -13,7 +13,7 @@
 
     const dispatch = createEventDispatcher();
     const uniqueId = "picker_" + CommonHelper.randomString(5);
-    const batchSize = 100;
+    const batchSize = 50;
 
     export let value;
     export let field;
@@ -24,7 +24,7 @@
     let list = [];
     let selected = [];
     let currentPage = 1;
-    let totalItems = 0;
+    let lastItemsCount = 0;
     let isLoadingList = false;
     let isLoadingSelected = false;
 
@@ -32,17 +32,17 @@
 
     $: collectionId = field?.options?.collectionId;
 
-    $: displayFields = field?.options?.displayFields;
-
     $: collection = $collections.find((c) => c.id == collectionId) || null;
 
-    $: if (typeof filter !== "undefined" && !isLoadingSelected && pickerPanel?.isActive()) {
-        loadList(true); // reset list on filter or list change
+    $: if (typeof filter !== "undefined" && pickerPanel?.isActive()) {
+        loadList(true); // reset list on filter change
     }
+
+    $: isView = collection?.type === "view";
 
     $: isLoading = isLoadingList || isLoadingSelected;
 
-    $: canLoadMore = totalItems > list.length;
+    $: canLoadMore = lastItemsCount == batchSize;
 
     $: canSelectMore = maxSelect === null || maxSelect > selected.length;
 
@@ -106,11 +106,14 @@
                 // add the selected models to the list (if not already)
                 list = CommonHelper.filterDuplicatesByKey(selected.concat(list));
             }
-        } catch (err) {
-            ApiClient.error(err);
-        }
 
-        isLoadingSelected = false;
+            isLoadingSelected = false;
+        } catch (err) {
+            if (!err.isAbort) {
+                ApiClient.error(err);
+                isLoadingSelected = false;
+            }
+        }
     }
 
     async function loadList(reset = false) {
@@ -136,18 +139,22 @@
 
             const result = await ApiClient.collection(collectionId).getList(page, batchSize, {
                 filter: CommonHelper.normalizeSearchFilter(filter, fallbackSearchFields),
-                sort: !collection?.$isView ? "-created" : "",
+                sort: !isView ? "-created" : "",
+                skipTotal: 1,
                 $cancelKey: uniqueId + "loadList",
             });
 
             list = CommonHelper.filterDuplicatesByKey(list.concat(result.items));
             currentPage = result.page;
-            totalItems = result.totalItems;
-        } catch (err) {
-            ApiClient.error(err);
-        }
+            lastItemsCount = result.items.length;
 
-        isLoadingList = false;
+            isLoadingList = false;
+        } catch (err) {
+            if (!err.isAbort) {
+                ApiClient.error(err);
+                isLoadingList = false;
+            }
+        }
     }
 
     $: isSelected = function (record) {
@@ -201,7 +208,7 @@
             autocompleteCollection={collection}
             on:submit={(e) => (filter = e.detail)}
         />
-        {#if !collection?.$isView}
+        {#if !isView}
             <button
                 type="button"
                 class="btn btn-transparent btn-hint p-l-sm p-r-sm"
@@ -243,9 +250,9 @@
                     <i class="ri-checkbox-blank-circle-line txt-disabled" />
                 {/if}
                 <div class="content">
-                    <RecordInfo {record} {displayFields} />
+                    <RecordInfo {record} />
                 </div>
-                {#if !collection?.$isView}
+                {#if !isView}
                     <div class="actions nonintrusive">
                         <button
                             type="button"
@@ -260,21 +267,25 @@
                 {/if}
             </div>
         {:else}
-            <div class="list-item">
-                {#if isLoading}
-                    <div class="block txt-center">
-                        <span class="loader loader-sm active" />
-                    </div>
-                {:else}
+            {#if !isLoading}
+                <div class="list-item">
                     <span class="txt txt-hint">No records found.</span>
                     {#if filter?.length}
                         <button type="button" class="btn btn-hint btn-sm" on:click={() => (filter = "")}>
                             <span class="txt">Clear filters</span>
                         </button>
                     {/if}
-                {/if}
-            </div>
+                </div>
+            {/if}
         {/each}
+
+        {#if isLoading}
+            <div class="list-item">
+                <div class="block txt-center">
+                    <span class="loader loader-sm active" />
+                </div>
+            </div>
+        {/if}
     </div>
 
     <h5 class="section-title">
@@ -288,7 +299,7 @@
             {#each selected as record, i}
                 <Draggable bind:list={selected} index={i} let:dragging let:dragover>
                     <span class="label" class:label-danger={dragging} class:label-warning={dragover}>
-                        <RecordInfo {record} {displayFields} />
+                        <RecordInfo {record} />
                         <button
                             type="button"
                             title="Remove"

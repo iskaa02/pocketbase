@@ -166,6 +166,10 @@ func (validator *RecordDataValidator) checkNumberValue(field *schema.SchemaField
 	val, _ = value.(float64)
 	options, _ := field.Options.(*schema.NumberOptions)
 
+	if options.NoDecimal && val != float64(int64(val)) {
+		return validation.NewError("validation_no_decimal_constraint", "Decimal numbers are not allowed")
+	}
+
 	if options.Min != nil && val < *options.Min {
 		return validation.NewError("validation_min_number_constraint", fmt.Sprintf("Must be larger than %f", *options.Min))
 	}

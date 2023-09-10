@@ -11,7 +11,7 @@ func TestNewBaseApp(t *testing.T) {
 	const testDataDir = "./pb_base_app_test_data_dir/"
 	defer os.RemoveAll(testDataDir)
 
-	app := NewBaseApp(&BaseAppConfig{
+	app := NewBaseApp(BaseAppConfig{
 		DataDir:       testDataDir,
 		EncryptionEnv: "test_env",
 		IsDebug:       true,
@@ -46,7 +46,7 @@ func TestBaseAppBootstrap(t *testing.T) {
 	const testDataDir = "./pb_base_app_test_data_dir/"
 	defer os.RemoveAll(testDataDir)
 
-	app := NewBaseApp(&BaseAppConfig{
+	app := NewBaseApp(BaseAppConfig{
 		DataDir:       testDataDir,
 		EncryptionEnv: "pb_test_env",
 		IsDebug:       false,
@@ -118,17 +118,13 @@ func TestBaseAppBootstrap(t *testing.T) {
 	if app.logsDao != nil {
 		t.Fatalf("Expected app.logsDao to be nil, got %v.", app.logsDao)
 	}
-
-	if app.settings != nil {
-		t.Fatalf("Expected app.settings to be nil, got %v.", app.settings)
-	}
 }
 
 func TestBaseAppGetters(t *testing.T) {
 	const testDataDir = "./pb_base_app_test_data_dir/"
 	defer os.RemoveAll(testDataDir)
 
-	app := NewBaseApp(&BaseAppConfig{
+	app := NewBaseApp(BaseAppConfig{
 		DataDir:       testDataDir,
 		EncryptionEnv: "pb_test_env",
 		IsDebug:       false,
@@ -188,7 +184,7 @@ func TestBaseAppNewMailClient(t *testing.T) {
 	const testDataDir = "./pb_base_app_test_data_dir/"
 	defer os.RemoveAll(testDataDir)
 
-	app := NewBaseApp(&BaseAppConfig{
+	app := NewBaseApp(BaseAppConfig{
 		DataDir:       testDataDir,
 		EncryptionEnv: "pb_test_env",
 		IsDebug:       false,
@@ -211,7 +207,7 @@ func TestBaseAppNewFilesystem(t *testing.T) {
 	const testDataDir = "./pb_base_app_test_data_dir/"
 	defer os.RemoveAll(testDataDir)
 
-	app := NewBaseApp(&BaseAppConfig{
+	app := NewBaseApp(BaseAppConfig{
 		DataDir:       testDataDir,
 		EncryptionEnv: "pb_test_env",
 		IsDebug:       false,
@@ -241,7 +237,7 @@ func TestBaseAppNewBackupsFilesystem(t *testing.T) {
 	const testDataDir = "./pb_base_app_test_data_dir/"
 	defer os.RemoveAll(testDataDir)
 
-	app := NewBaseApp(&BaseAppConfig{
+	app := NewBaseApp(BaseAppConfig{
 		DataDir:       testDataDir,
 		EncryptionEnv: "pb_test_env",
 		IsDebug:       false,
