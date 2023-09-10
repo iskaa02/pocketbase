@@ -1,12 +1,11 @@
 <script>
-    import { Collection } from "pocketbase";
     import ApiClient from "@/utils/ApiClient";
     import CommonHelper from "@/utils/CommonHelper";
     import CodeBlock from "@/components/base/CodeBlock.svelte";
     import FilterSyntax from "@/components/collections/docs/FilterSyntax.svelte";
     import SdkTabs from "@/components/collections/docs/SdkTabs.svelte";
 
-    export let collection = new Collection();
+    export let collection;
 
     let responseTab = 200;
     let responses = [];
@@ -218,6 +217,28 @@
             <td>
                 Comma separated string of the fields to return in the JSON response
                 <em>(by default returns all fields)</em>.
+                <br />
+                Use <code>*</code> to target all keys from the specific depth level.
+                <br />
+                For example: <code>?fields=*,expand.author.name</code>
+            </td>
+        </tr>
+        <tr>
+            <td id="query-page">skipTotal</td>
+            <td>
+                <span class="label">Boolean</span>
+            </td>
+            <td>
+                If it is set the total counts query will be skipped and the response fields
+                <code>totalItems</code> and <code>totalPages</code> will have <code>-1</code> value.
+                <br />
+                This could drastically speed up the search queries when the total counters are not needed or cursor
+                based pagination is used.
+                <br />
+                For optimization purposes, it is set by default for the
+                <code>getFirstListItem()</code>
+                and
+                <code>getFullList()</code> SDKs methods.
             </td>
         </tr>
     </tbody>
@@ -225,7 +246,7 @@
 
 <div class="section-title">Responses</div>
 <div class="tabs">
-    <div class="tabs-header compact left">
+    <div class="tabs-header compact combined left">
         {#each responses as response (response.code)}
             <button
                 type="button"

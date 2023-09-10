@@ -22,7 +22,7 @@ func TestRecordFieldResolverUpdateQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requestData := &models.RequestData{
+	requestInfo := &models.RequestInfo{
 		Headers: map[string]any{
 			"a": "123",
 			"b": "456",
@@ -294,14 +294,14 @@ func TestRecordFieldResolverUpdateQuery(t *testing.T) {
 				"self_rel_one.rel_many_cascade.files:length != 7 &&" +
 				"self_rel_one.rel_many_cascade.files:length ?!= 8",
 			false,
-			"SELECT DISTINCT `demo4`.* FROM `demo4` LEFT JOIN `demo4` `__data_demo4` ON [[__data_demo4.id]]={:TEST} LEFT JOIN `demo3` `__data_demo3` ON [[__data_demo3.id]] IN ({:TEST}, {:TEST}) LEFT JOIN `demo4` `demo4_self_rel_one` ON [[demo4_self_rel_one.id]] = [[demo4.self_rel_one]] LEFT JOIN json_each(CASE WHEN json_valid([[demo4_self_rel_one.rel_many_cascade]]) THEN [[demo4_self_rel_one.rel_many_cascade]] ELSE json_array([[demo4_self_rel_one.rel_many_cascade]]) END) `demo4_self_rel_one_rel_many_cascade_je` LEFT JOIN `demo3` `demo4_self_rel_one_rel_many_cascade` ON [[demo4_self_rel_one_rel_many_cascade.id]] = [[demo4_self_rel_one_rel_many_cascade_je.value]] WHERE (json_array_length(CASE WHEN json_valid([[__data_demo4.self_rel_many]]) THEN [[__data_demo4.self_rel_many]] ELSE json_array([[__data_demo4.self_rel_many]]) END) > {:TEST} AND json_array_length(CASE WHEN json_valid([[__data_demo4.self_rel_many]]) THEN [[__data_demo4.self_rel_many]] ELSE json_array([[__data_demo4.self_rel_many]]) END) > {:TEST} AND json_array_length(CASE WHEN json_valid([[__data_demo3.files]]) THEN [[__data_demo3.files]] ELSE json_array([[__data_demo3.files]]) END) < {:TEST} AND ((json_array_length(CASE WHEN json_valid([[__data_demo3.files]]) THEN [[__data_demo3.files]] ELSE json_array([[__data_demo3.files]]) END) < {:TEST}) AND (NOT EXISTS (SELECT 1 FROM (SELECT json_array_length(CASE WHEN json_valid([[__data_mm_demo3.files]]) THEN [[__data_mm_demo3.files]] ELSE json_array([[__data_mm_demo3.files]]) END) as [[multiMatchValue]] FROM `demo4` `__mm_demo4` LEFT JOIN `demo3` `__data_mm_demo3` ON `__data_mm_demo3`.`id` IN ({:TEST}, {:TEST}) WHERE `__mm_demo4`.`id` = `demo4`.`id`) {{__smTEST}} WHERE ((NOT ([[__smTEST.multiMatchValue]] < {:TEST})) OR ([[__smTEST.multiMatchValue]] IS NULL))))) AND json_array_length(CASE WHEN json_valid([[demo4_self_rel_one.self_rel_many]]) THEN [[demo4_self_rel_one.self_rel_many]] ELSE json_array([[demo4_self_rel_one.self_rel_many]]) END) = {:TEST} AND json_array_length(CASE WHEN json_valid([[demo4_self_rel_one.self_rel_many]]) THEN [[demo4_self_rel_one.self_rel_many]] ELSE json_array([[demo4_self_rel_one.self_rel_many]]) END) = {:TEST} AND ((json_array_length(CASE WHEN json_valid([[demo4_self_rel_one_rel_many_cascade.files]]) THEN [[demo4_self_rel_one_rel_many_cascade.files]] ELSE json_array([[demo4_self_rel_one_rel_many_cascade.files]]) END) != {:TEST}) AND (NOT EXISTS (SELECT 1 FROM (SELECT json_array_length(CASE WHEN json_valid([[__mm_demo4_self_rel_one_rel_many_cascade.files]]) THEN [[__mm_demo4_self_rel_one_rel_many_cascade.files]] ELSE json_array([[__mm_demo4_self_rel_one_rel_many_cascade.files]]) END) as [[multiMatchValue]] FROM `demo4` `__mm_demo4` LEFT JOIN `demo4` `__mm_demo4_self_rel_one` ON [[__mm_demo4_self_rel_one.id]] = [[__mm_demo4.self_rel_one]] LEFT JOIN json_each(CASE WHEN json_valid([[__mm_demo4_self_rel_one.rel_many_cascade]]) THEN [[__mm_demo4_self_rel_one.rel_many_cascade]] ELSE json_array([[__mm_demo4_self_rel_one.rel_many_cascade]]) END) `__mm_demo4_self_rel_one_rel_many_cascade_je` LEFT JOIN `demo3` `__mm_demo4_self_rel_one_rel_many_cascade` ON [[__mm_demo4_self_rel_one_rel_many_cascade.id]] = [[__mm_demo4_self_rel_one_rel_many_cascade_je.value]] WHERE `__mm_demo4`.`id` = `demo4`.`id`) {{__smTEST}} WHERE ((NOT ([[__smTEST.multiMatchValue]] != {:TEST})) OR ([[__smTEST.multiMatchValue]] IS NULL))))) AND json_array_length(CASE WHEN json_valid([[demo4_self_rel_one_rel_many_cascade.files]]) THEN [[demo4_self_rel_one_rel_many_cascade.files]] ELSE json_array([[demo4_self_rel_one_rel_many_cascade.files]]) END) != {:TEST})",
+			"SELECT DISTINCT `demo4`.* FROM `demo4` LEFT JOIN `demo4` `__data_demo4` ON [[__data_demo4.id]]={:TEST} LEFT JOIN `demo3` `__data_demo3` ON [[__data_demo3.id]] IN ({:TEST}, {:TEST}) LEFT JOIN `demo4` `demo4_self_rel_one` ON [[demo4_self_rel_one.id]] = [[demo4.self_rel_one]] LEFT JOIN json_each(CASE WHEN json_valid([[demo4_self_rel_one.rel_many_cascade]]) THEN [[demo4_self_rel_one.rel_many_cascade]] ELSE json_array([[demo4_self_rel_one.rel_many_cascade]]) END) `demo4_self_rel_one_rel_many_cascade_je` LEFT JOIN `demo3` `demo4_self_rel_one_rel_many_cascade` ON [[demo4_self_rel_one_rel_many_cascade.id]] = [[demo4_self_rel_one_rel_many_cascade_je.value]] WHERE (json_array_length(CASE WHEN json_valid([[__data_demo4.self_rel_many]]) THEN [[__data_demo4.self_rel_many]] ELSE (CASE WHEN [[__data_demo4.self_rel_many]] = '' OR [[__data_demo4.self_rel_many]] IS NULL THEN json_array() ELSE json_array([[__data_demo4.self_rel_many]]) END) END) > {:TEST} AND json_array_length(CASE WHEN json_valid([[__data_demo4.self_rel_many]]) THEN [[__data_demo4.self_rel_many]] ELSE (CASE WHEN [[__data_demo4.self_rel_many]] = '' OR [[__data_demo4.self_rel_many]] IS NULL THEN json_array() ELSE json_array([[__data_demo4.self_rel_many]]) END) END) > {:TEST} AND json_array_length(CASE WHEN json_valid([[__data_demo3.files]]) THEN [[__data_demo3.files]] ELSE (CASE WHEN [[__data_demo3.files]] = '' OR [[__data_demo3.files]] IS NULL THEN json_array() ELSE json_array([[__data_demo3.files]]) END) END) < {:TEST} AND ((json_array_length(CASE WHEN json_valid([[__data_demo3.files]]) THEN [[__data_demo3.files]] ELSE (CASE WHEN [[__data_demo3.files]] = '' OR [[__data_demo3.files]] IS NULL THEN json_array() ELSE json_array([[__data_demo3.files]]) END) END) < {:TEST}) AND (NOT EXISTS (SELECT 1 FROM (SELECT json_array_length(CASE WHEN json_valid([[__data_mm_demo3.files]]) THEN [[__data_mm_demo3.files]] ELSE (CASE WHEN [[__data_mm_demo3.files]] = '' OR [[__data_mm_demo3.files]] IS NULL THEN json_array() ELSE json_array([[__data_mm_demo3.files]]) END) END) as [[multiMatchValue]] FROM `demo4` `__mm_demo4` LEFT JOIN `demo3` `__data_mm_demo3` ON `__data_mm_demo3`.`id` IN ({:TEST}, {:TEST}) WHERE `__mm_demo4`.`id` = `demo4`.`id`) {{__smTEST}} WHERE ((NOT ([[__smTEST.multiMatchValue]] < {:TEST})) OR ([[__smTEST.multiMatchValue]] IS NULL))))) AND json_array_length(CASE WHEN json_valid([[demo4_self_rel_one.self_rel_many]]) THEN [[demo4_self_rel_one.self_rel_many]] ELSE (CASE WHEN [[demo4_self_rel_one.self_rel_many]] = '' OR [[demo4_self_rel_one.self_rel_many]] IS NULL THEN json_array() ELSE json_array([[demo4_self_rel_one.self_rel_many]]) END) END) = {:TEST} AND json_array_length(CASE WHEN json_valid([[demo4_self_rel_one.self_rel_many]]) THEN [[demo4_self_rel_one.self_rel_many]] ELSE (CASE WHEN [[demo4_self_rel_one.self_rel_many]] = '' OR [[demo4_self_rel_one.self_rel_many]] IS NULL THEN json_array() ELSE json_array([[demo4_self_rel_one.self_rel_many]]) END) END) = {:TEST} AND ((json_array_length(CASE WHEN json_valid([[demo4_self_rel_one_rel_many_cascade.files]]) THEN [[demo4_self_rel_one_rel_many_cascade.files]] ELSE (CASE WHEN [[demo4_self_rel_one_rel_many_cascade.files]] = '' OR [[demo4_self_rel_one_rel_many_cascade.files]] IS NULL THEN json_array() ELSE json_array([[demo4_self_rel_one_rel_many_cascade.files]]) END) END) != {:TEST}) AND (NOT EXISTS (SELECT 1 FROM (SELECT json_array_length(CASE WHEN json_valid([[__mm_demo4_self_rel_one_rel_many_cascade.files]]) THEN [[__mm_demo4_self_rel_one_rel_many_cascade.files]] ELSE (CASE WHEN [[__mm_demo4_self_rel_one_rel_many_cascade.files]] = '' OR [[__mm_demo4_self_rel_one_rel_many_cascade.files]] IS NULL THEN json_array() ELSE json_array([[__mm_demo4_self_rel_one_rel_many_cascade.files]]) END) END) as [[multiMatchValue]] FROM `demo4` `__mm_demo4` LEFT JOIN `demo4` `__mm_demo4_self_rel_one` ON [[__mm_demo4_self_rel_one.id]] = [[__mm_demo4.self_rel_one]] LEFT JOIN json_each(CASE WHEN json_valid([[__mm_demo4_self_rel_one.rel_many_cascade]]) THEN [[__mm_demo4_self_rel_one.rel_many_cascade]] ELSE json_array([[__mm_demo4_self_rel_one.rel_many_cascade]]) END) `__mm_demo4_self_rel_one_rel_many_cascade_je` LEFT JOIN `demo3` `__mm_demo4_self_rel_one_rel_many_cascade` ON [[__mm_demo4_self_rel_one_rel_many_cascade.id]] = [[__mm_demo4_self_rel_one_rel_many_cascade_je.value]] WHERE `__mm_demo4`.`id` = `demo4`.`id`) {{__smTEST}} WHERE ((NOT ([[__smTEST.multiMatchValue]] != {:TEST})) OR ([[__smTEST.multiMatchValue]] IS NULL))))) AND json_array_length(CASE WHEN json_valid([[demo4_self_rel_one_rel_many_cascade.files]]) THEN [[demo4_self_rel_one_rel_many_cascade.files]] ELSE (CASE WHEN [[demo4_self_rel_one_rel_many_cascade.files]] = '' OR [[demo4_self_rel_one_rel_many_cascade.files]] IS NULL THEN json_array() ELSE json_array([[demo4_self_rel_one_rel_many_cascade.files]]) END) END) != {:TEST})",
 		},
 		{
 			"json_extract and json_array_length COALESCE equal normalizations",
 			"demo4",
 			"json_object.a.b = '' && self_rel_many:length != 2 && json_object.a.b > 3 && self_rel_many:length <= 4",
 			false,
-			"SELECT `demo4`.* FROM `demo4` WHERE ((JSON_EXTRACT([[demo4.json_object]], '$.a.b') = '' OR JSON_EXTRACT([[demo4.json_object]], '$.a.b') IS NULL) AND json_array_length(CASE WHEN json_valid([[demo4.self_rel_many]]) THEN [[demo4.self_rel_many]] ELSE json_array([[demo4.self_rel_many]]) END) != {:TEST} AND JSON_EXTRACT([[demo4.json_object]], '$.a.b') > {:TEST} AND json_array_length(CASE WHEN json_valid([[demo4.self_rel_many]]) THEN [[demo4.self_rel_many]] ELSE json_array([[demo4.self_rel_many]]) END) <= {:TEST})",
+			"SELECT `demo4`.* FROM `demo4` WHERE ((JSON_EXTRACT([[demo4.json_object]], '$.a.b') = '' OR JSON_EXTRACT([[demo4.json_object]], '$.a.b') IS NULL) AND json_array_length(CASE WHEN json_valid([[demo4.self_rel_many]]) THEN [[demo4.self_rel_many]] ELSE (CASE WHEN [[demo4.self_rel_many]] = '' OR [[demo4.self_rel_many]] IS NULL THEN json_array() ELSE json_array([[demo4.self_rel_many]]) END) END) != {:TEST} AND JSON_EXTRACT([[demo4.json_object]], '$.a.b') > {:TEST} AND json_array_length(CASE WHEN json_valid([[demo4.self_rel_many]]) THEN [[demo4.self_rel_many]] ELSE (CASE WHEN [[demo4.self_rel_many]] = '' OR [[demo4.self_rel_many]] IS NULL THEN json_array() ELSE json_array([[demo4.self_rel_many]]) END) END) <= {:TEST})",
 		},
 	}
 
@@ -313,7 +313,7 @@ func TestRecordFieldResolverUpdateQuery(t *testing.T) {
 
 		query := app.Dao().RecordQuery(collection)
 
-		r := resolvers.NewRecordFieldResolver(app.Dao(), collection, requestData, s.allowHiddenFields)
+		r := resolvers.NewRecordFieldResolver(app.Dao(), collection, requestInfo, s.allowHiddenFields)
 
 		expr, err := search.FilterData(s.rule).BuildExpr(r)
 		if err != nil {
@@ -353,11 +353,11 @@ func TestRecordFieldResolverResolveSchemaFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requestData := &models.RequestData{
+	requestInfo := &models.RequestInfo{
 		AuthRecord: authRecord,
 	}
 
-	r := resolvers.NewRecordFieldResolver(app.Dao(), collection, requestData, true)
+	r := resolvers.NewRecordFieldResolver(app.Dao(), collection, requestInfo, true)
 
 	scenarios := []struct {
 		fieldName   string
@@ -424,7 +424,7 @@ func TestRecordFieldResolverResolveSchemaFields(t *testing.T) {
 	}
 }
 
-func TestRecordFieldResolverResolveStaticRequestDataFields(t *testing.T) {
+func TestRecordFieldResolverResolveStaticRequestInfoFields(t *testing.T) {
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -438,7 +438,7 @@ func TestRecordFieldResolverResolveStaticRequestDataFields(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	requestData := &models.RequestData{
+	requestInfo := &models.RequestInfo{
 		Method: "get",
 		Query: map[string]any{
 			"a": 123,
@@ -455,7 +455,7 @@ func TestRecordFieldResolverResolveStaticRequestDataFields(t *testing.T) {
 		AuthRecord: authRecord,
 	}
 
-	r := resolvers.NewRecordFieldResolver(app.Dao(), collection, requestData, true)
+	r := resolvers.NewRecordFieldResolver(app.Dao(), collection, requestInfo, true)
 
 	scenarios := []struct {
 		fieldName        string
