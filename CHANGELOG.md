@@ -1,3 +1,42 @@
+## v0.18.9
+
+- Fixed empty thumbs directories not getting deleted on Windows after deleting a record img file ([#3382](https://github.com/pocketbase/pocketbase/issues/3382)).
+
+- Updated the generated JSVM typings to silent the TS warnings when trying to access a field/method in a Go->TS interface.
+
+
+## v0.18.8
+
+- Minor fix for the View collections API Preview and Admin UI listings incorrectly showing the `created` and `updated` fields as `N/A` when the view query doesn't have them.
+
+
+## v0.18.7
+
+- Fixed JS error in the Admin UI when listing records with invalid `relation` field value ([#3372](https://github.com/pocketbase/pocketbase/issues/3372)).
+  _This could happen usually only during custom SQL import scripts or when directly modifying the record field value without data validations._
+
+- Updated Go deps and the generated JSVM types.
+
+
+## v0.18.6
+
+- Return the response headers and cookies in the `$http.send()` result ([#3310](https://github.com/pocketbase/pocketbase/discussions/3310)).
+
+- Added more descriptive internal error message for missing user/admin email on password reset requests.
+
+- Updated Go deps.
+
+
+## v0.18.5
+
+- Fixed minor Admin UI JS error in the auth collection options panel introduced with the change from v0.18.4.
+
+
+## v0.18.4
+
+- Added escape character (`\`) support in the Admin UI to allow using `select` field values with comma ([#2197](https://github.com/pocketbase/pocketbase/discussions/2197)).
+
+
 ## v0.18.3
 
 - Exposed a global JSVM `readerToString(reader)` helper function to allow reading Go `io.Reader` values ([#3273](https://github.com/pocketbase/pocketbase/discussions/3273)).
