@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -18,6 +18,7 @@ import (
 	"github.com/dop251/goja"
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/labstack/echo/v5"
+	"github.com/labstack/echo/v5/middleware"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
@@ -35,7 +36,9 @@ import (
 	"github.com/pocketbase/pocketbase/tools/mailer"
 	"github.com/pocketbase/pocketbase/tools/rest"
 	"github.com/pocketbase/pocketbase/tools/security"
+	"github.com/pocketbase/pocketbase/tools/subscriptions"
 	"github.com/pocketbase/pocketbase/tools/types"
+	"github.com/spf13/cast"
 	"github.com/spf13/cobra"
 )
 
@@ -119,8 +122,12 @@ func cronBinds(app core.App, loader *goja.Runtime, executors *vmsPool) {
 				return err
 			})
 
-			if err != nil && app.IsDebug() {
-				fmt.Println("[cronAdd] failed to execute cron job " + jobId + ": " + err.Error())
+			if err != nil {
+				app.Logger().Debug(
+					"[cronAdd] failed to execute cron job",
+					slog.String("jobId", jobId),
+					slog.String("error", err.Error()),
+				)
 			}
 		})
 		if err != nil {
@@ -294,6 +301,10 @@ func baseBinds(vm *goja.Runtime) {
 		return string(bodyBytes), nil
 	})
 
+	vm.Set("sleep", func(milliseconds int64) {
+		time.Sleep(time.Duration(milliseconds) * time.Millisecond)
+	})
+
 	vm.Set("arrayOf", func(model any) any {
 		mt := reflect.TypeOf(model)
 		st := reflect.SliceOf(mt)
@@ -366,7 +377,7 @@ func baseBinds(vm *goja.Runtime) {
 	})
 
 	vm.Set("RequestInfo", func(call goja.ConstructorCall) *goja.Object {
-		instance := &models.RequestInfo{}
+		instance := &models.RequestInfo{Context: models.RequestInfoContextDefault}
 		return structConstructor(vm, call, instance)
 	})
 
@@ -411,6 +422,16 @@ func baseBinds(vm *goja.Runtime) {
 		instanceValue.SetPrototype(call.This.Prototype())
 
 		return instanceValue
+	})
+
+	vm.Set("Cookie", func(call goja.ConstructorCall) *goja.Object {
+		instance := &http.Cookie{}
+		return structConstructor(vm, call, instance)
+	})
+
+	vm.Set("SubscriptionMessage", func(call goja.ConstructorCall) *goja.Object {
+		instance := &subscriptions.Message{}
+		return structConstructor(vm, call, instance)
 	})
 }
 
@@ -486,8 +507,12 @@ func securityBinds(vm *goja.Runtime) {
 	obj.Set("pseudorandomStringWithAlphabet", security.PseudorandomStringWithAlphabet)
 
 	// jwt
-	obj.Set("parseUnverifiedJWT", security.ParseUnverifiedJWT)
-	obj.Set("parseJWT", security.ParseJWT)
+	obj.Set("parseUnverifiedJWT", func(token string) (map[string]any, error) {
+		return security.ParseUnverifiedJWT(token)
+	})
+	obj.Set("parseJWT", func(token string, verificationKey string) (map[string]any, error) {
+		return security.ParseJWT(token, verificationKey)
+	})
 	obj.Set("createJWT", security.NewJWT)
 
 	// encryption
@@ -510,6 +535,16 @@ func filesystemBinds(vm *goja.Runtime) {
 	obj.Set("fileFromPath", filesystem.NewFileFromPath)
 	obj.Set("fileFromBytes", filesystem.NewFileFromBytes)
 	obj.Set("fileFromMultipart", filesystem.NewFileFromMultipart)
+	obj.Set("fileFromUrl", func(url string, secTimeout int) (*filesystem.File, error) {
+		if secTimeout == 0 {
+			secTimeout = 120
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(secTimeout)*time.Second)
+		defer cancel()
+
+		return filesystem.NewFileFromUrl(ctx, url)
+	})
 }
 
 func filepathBinds(vm *goja.Runtime) {
@@ -538,7 +573,8 @@ func osBinds(vm *goja.Runtime) {
 	vm.Set("$os", obj)
 
 	obj.Set("args", os.Args)
-	obj.Set("exec", exec.Command)
+	obj.Set("exec", exec.Command) // @deprecated
+	obj.Set("cmd", exec.Command)
 	obj.Set("exit", os.Exit)
 	obj.Set("getenv", os.Getenv)
 	obj.Set("dirFS", os.DirFS)
@@ -587,12 +623,15 @@ func apisBinds(vm *goja.Runtime) {
 	})
 
 	// middlewares
+	obj.Set("requireGuestOnly", apis.RequireGuestOnly)
 	obj.Set("requireRecordAuth", apis.RequireRecordAuth)
 	obj.Set("requireAdminAuth", apis.RequireAdminAuth)
 	obj.Set("requireAdminAuthOnlyIfAny", apis.RequireAdminAuthOnlyIfAny)
 	obj.Set("requireAdminOrRecordAuth", apis.RequireAdminOrRecordAuth)
 	obj.Set("requireAdminOrOwnerAuth", apis.RequireAdminOrOwnerAuth)
 	obj.Set("activityLogger", apis.ActivityLogger)
+	obj.Set("gzip", middleware.Gzip)
+	obj.Set("bodyLimit", middleware.BodyLimit)
 
 	// record helpers
 	obj.Set("requestInfo", apis.RequestInfo)
@@ -612,34 +651,61 @@ func httpClientBinds(vm *goja.Runtime) {
 	obj := vm.NewObject()
 	vm.Set("$http", obj)
 
+	vm.Set("FormData", func(call goja.ConstructorCall) *goja.Object {
+		instance := FormData{}
+
+		instanceValue := vm.ToValue(instance).(*goja.Object)
+		instanceValue.SetPrototype(call.This.Prototype())
+
+		return instanceValue
+	})
+
 	type sendResult struct {
-		StatusCode int                     `json:"statusCode"`
+		Json       any                     `json:"json"`
 		Headers    map[string][]string     `json:"headers"`
 		Cookies    map[string]*http.Cookie `json:"cookies"`
 		Raw        string                  `json:"raw"`
-		Json       any                     `json:"json"`
+		StatusCode int                     `json:"statusCode"`
 	}
 
 	type sendConfig struct {
+		// Deprecated: consider using Body instead
+		Data map[string]any
+
+		Body    any // raw string or FormData
+		Headers map[string]string
 		Method  string
 		Url     string
-		Body    string
-		Headers map[string]string
-		Timeout int            // seconds (default to 120)
-		Data    map[string]any // deprecated, consider using Body instead
+		Timeout int // seconds (default to 120)
 	}
 
 	obj.Set("send", func(params map[string]any) (*sendResult, error) {
-		rawParams, err := json.Marshal(params)
-		if err != nil {
-			return nil, err
-		}
-
 		config := sendConfig{
 			Method: "GET",
 		}
-		if err := json.Unmarshal(rawParams, &config); err != nil {
-			return nil, err
+
+		if v, ok := params["data"]; ok {
+			config.Data = cast.ToStringMap(v)
+		}
+
+		if v, ok := params["body"]; ok {
+			config.Body = v
+		}
+
+		if v, ok := params["headers"]; ok {
+			config.Headers = cast.ToStringMapString(v)
+		}
+
+		if v, ok := params["method"]; ok {
+			config.Method = cast.ToString(v)
+		}
+
+		if v, ok := params["url"]; ok {
+			config.Url = cast.ToString(v)
+		}
+
+		if v, ok := params["timeout"]; ok {
+			config.Timeout = cast.ToInt(v)
 		}
 
 		if config.Timeout <= 0 {
@@ -650,6 +716,7 @@ func httpClientBinds(vm *goja.Runtime) {
 		defer cancel()
 
 		var reqBody io.Reader
+		var contentType string
 
 		// legacy json body data
 		if len(config.Data) != 0 {
@@ -658,10 +725,19 @@ func httpClientBinds(vm *goja.Runtime) {
 				return nil, err
 			}
 			reqBody = bytes.NewReader(encoded)
-		}
+		} else {
+			switch v := config.Body.(type) {
+			case FormData:
+				body, mp, err := v.toMultipart()
+				if err != nil {
+					return nil, err
+				}
 
-		if config.Body != "" {
-			reqBody = strings.NewReader(config.Body)
+				reqBody = body
+				contentType = mp.FormDataContentType()
+			default:
+				reqBody = strings.NewReader(cast.ToString(config.Body))
+			}
 		}
 
 		req, err := http.NewRequestWithContext(ctx, strings.ToUpper(config.Method), config.Url, reqBody)
@@ -673,7 +749,15 @@ func httpClientBinds(vm *goja.Runtime) {
 			req.Header.Add(k, v)
 		}
 
-		// set default content-type header (if missing)
+		// set the explicit content type
+		// (overwriting the user provided header value if any)
+		if contentType != "" {
+			req.Header.Set("content-type", contentType)
+		}
+
+		// @todo consider removing during the refactoring
+		//
+		// fallback to json content-type
 		if req.Header.Get("content-type") == "" {
 			req.Header.Set("content-type", "application/json")
 		}

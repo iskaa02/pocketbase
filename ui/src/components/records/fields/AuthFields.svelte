@@ -9,7 +9,7 @@
 
     export let record;
     export let collection;
-    export let isNew = !record.id;
+    export let isNew = !record?.id;
 
     let originalUsername = record.username || null;
 
@@ -62,7 +62,7 @@
                         text: "Make email public or private",
                         position: "top-right",
                     }}
-                    on:click={() => (record.emailVisibility = !record.emailVisibility)}
+                    on:click|preventDefault={() => (record.emailVisibility = !record.emailVisibility)}
                 >
                     <span class="txt">Public: {record.emailVisibility ? "On" : "Off"}</span>
                 </button>
@@ -104,7 +104,9 @@
                                 bind:value={record.password}
                             />
                             <div class="form-field-addon">
-                                <SecretGeneratorButton length={15} />
+                                <SecretGeneratorButton
+                                    length={Math.max(15, collection?.options?.minPasswordLength || 0)}
+                                />
                             </div>
                         </Field>
                     </div>
@@ -143,7 +145,7 @@
                         () => {},
                         () => {
                             record.verified = !e.target.checked;
-                        }
+                        },
                     );
                 }}
             />

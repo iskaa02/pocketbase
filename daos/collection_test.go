@@ -16,6 +16,8 @@ import (
 )
 
 func TestCollectionQuery(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -28,6 +30,8 @@ func TestCollectionQuery(t *testing.T) {
 }
 
 func TestFindCollectionsByType(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -63,6 +67,8 @@ func TestFindCollectionsByType(t *testing.T) {
 }
 
 func TestFindCollectionByNameOrId(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -92,6 +98,8 @@ func TestFindCollectionByNameOrId(t *testing.T) {
 }
 
 func TestIsCollectionNameUnique(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -116,6 +124,8 @@ func TestIsCollectionNameUnique(t *testing.T) {
 }
 
 func TestFindCollectionReferences(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -143,9 +153,11 @@ func TestFindCollectionReferences(t *testing.T) {
 		"rel_one_no_cascade",
 		"rel_one_no_cascade_required",
 		"rel_one_cascade",
+		"rel_one_unique",
 		"rel_many_no_cascade",
 		"rel_many_no_cascade_required",
 		"rel_many_cascade",
+		"rel_many_unique",
 	}
 
 	for col, fields := range result {
@@ -164,6 +176,8 @@ func TestFindCollectionReferences(t *testing.T) {
 }
 
 func TestDeleteCollection(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -251,6 +265,8 @@ func TestDeleteCollection(t *testing.T) {
 }
 
 func TestSaveCollectionCreate(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -297,6 +313,8 @@ func TestSaveCollectionCreate(t *testing.T) {
 }
 
 func TestSaveCollectionUpdate(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -336,6 +354,8 @@ func TestSaveCollectionUpdate(t *testing.T) {
 
 // indirect update of a field used in view should cause view(s) update
 func TestSaveCollectionIndirectViewsUpdate(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -395,6 +415,8 @@ func TestSaveCollectionIndirectViewsUpdate(t *testing.T) {
 }
 
 func TestSaveCollectionViewWrapping(t *testing.T) {
+	t.Parallel()
+
 	viewName := "test_wrapping"
 
 	scenarios := []struct {
@@ -504,6 +526,8 @@ func TestSaveCollectionViewWrapping(t *testing.T) {
 }
 
 func TestImportCollections(t *testing.T) {
+	t.Parallel()
+
 	totalCollections := 11
 
 	scenarios := []struct {
@@ -734,7 +758,7 @@ func TestImportCollections(t *testing.T) {
 					"demo1":      15,
 					"demo2":      2,
 					"demo3":      2,
-					"demo4":      11,
+					"demo4":      13,
 					"demo5":      6,
 					"new_import": 1,
 				}
@@ -752,37 +776,38 @@ func TestImportCollections(t *testing.T) {
 		},
 	}
 
-	for _, scenario := range scenarios {
-		testApp, _ := tests.NewTestApp()
-		defer testApp.Cleanup()
+	for _, s := range scenarios {
+		t.Run(s.name, func(t *testing.T) {
+			testApp, _ := tests.NewTestApp()
+			defer testApp.Cleanup()
 
-		importedCollections := []*models.Collection{}
+			importedCollections := []*models.Collection{}
 
-		// load data
-		loadErr := json.Unmarshal([]byte(scenario.jsonData), &importedCollections)
-		if loadErr != nil {
-			t.Fatalf("[%s] Failed to load  data: %v", scenario.name, loadErr)
-			continue
-		}
+			// load data
+			loadErr := json.Unmarshal([]byte(s.jsonData), &importedCollections)
+			if loadErr != nil {
+				t.Fatalf("Failed to load  data: %v", loadErr)
+			}
 
-		err := testApp.Dao().ImportCollections(importedCollections, scenario.deleteMissing, scenario.beforeRecordsSync)
+			err := testApp.Dao().ImportCollections(importedCollections, s.deleteMissing, s.beforeRecordsSync)
 
-		hasErr := err != nil
-		if hasErr != scenario.expectError {
-			t.Errorf("[%s] Expected hasErr to be %v, got %v (%v)", scenario.name, scenario.expectError, hasErr, err)
-		}
+			hasErr := err != nil
+			if hasErr != s.expectError {
+				t.Fatalf("Expected hasErr to be %v, got %v (%v)", s.expectError, hasErr, err)
+			}
 
-		// check collections count
-		collections := []*models.Collection{}
-		if err := testApp.Dao().CollectionQuery().All(&collections); err != nil {
-			t.Fatal(err)
-		}
-		if len(collections) != scenario.expectCollectionsCount {
-			t.Errorf("[%s] Expected %d collections, got %d", scenario.name, scenario.expectCollectionsCount, len(collections))
-		}
+			// check collections count
+			collections := []*models.Collection{}
+			if err := testApp.Dao().CollectionQuery().All(&collections); err != nil {
+				t.Fatal(err)
+			}
+			if len(collections) != s.expectCollectionsCount {
+				t.Fatalf("Expected %d collections, got %d", s.expectCollectionsCount, len(collections))
+			}
 
-		if scenario.afterTestFunc != nil {
-			scenario.afterTestFunc(testApp, collections)
-		}
+			if s.afterTestFunc != nil {
+				s.afterTestFunc(testApp, collections)
+			}
+		})
 	}
 }

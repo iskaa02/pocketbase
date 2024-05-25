@@ -14,6 +14,8 @@ import (
 )
 
 func TestExpandRecords(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -161,7 +163,7 @@ func TestExpandRecords(t *testing.T) {
 			0,
 		},
 		{
-			"simple indirect expand",
+			"simple back single relation field expand (deprecated syntax)",
 			"demo3",
 			[]string{"lcl9d87w22ml6jy"},
 			[]string{"demo4(rel_one_no_cascade_required)"},
@@ -172,16 +174,40 @@ func TestExpandRecords(t *testing.T) {
 			0,
 		},
 		{
-			"nested indirect expand",
+			"simple back expand via single relation field",
+			"demo3",
+			[]string{"lcl9d87w22ml6jy"},
+			[]string{"demo4_via_rel_one_no_cascade_required"},
+			func(c *models.Collection, ids []string) ([]*models.Record, error) {
+				return app.Dao().FindRecordsByIds(c.Id, ids, nil)
+			},
+			1,
+			0,
+		},
+		{
+			"nested back expand via single relation field",
 			"demo3",
 			[]string{"lcl9d87w22ml6jy"},
 			[]string{
-				"demo4(rel_one_no_cascade_required).self_rel_many.self_rel_many.self_rel_one",
+				"demo4_via_rel_one_no_cascade_required.self_rel_many.self_rel_many.self_rel_one",
 			},
 			func(c *models.Collection, ids []string) ([]*models.Record, error) {
 				return app.Dao().FindRecordsByIds(c.Id, ids, nil)
 			},
 			5,
+			0,
+		},
+		{
+			"nested back expand via multiple relation field",
+			"demo3",
+			[]string{"lcl9d87w22ml6jy"},
+			[]string{
+				"demo4_via_rel_many_no_cascade_required.self_rel_many.rel_many_no_cascade_required.demo4_via_rel_many_no_cascade_required",
+			},
+			func(c *models.Collection, ids []string) ([]*models.Record, error) {
+				return app.Dao().FindRecordsByIds(c.Id, ids, nil)
+			},
+			7,
 			0,
 		},
 		{
@@ -222,6 +248,8 @@ func TestExpandRecords(t *testing.T) {
 }
 
 func TestExpandRecord(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -328,7 +356,7 @@ func TestExpandRecord(t *testing.T) {
 			0,
 		},
 		{
-			"simple indirect expand",
+			"simple indirect expand via single relation field (deprecated syntax)",
 			"demo3",
 			"lcl9d87w22ml6jy",
 			[]string{"demo4(rel_one_no_cascade_required)"},
@@ -339,7 +367,18 @@ func TestExpandRecord(t *testing.T) {
 			0,
 		},
 		{
-			"nested indirect expand",
+			"simple indirect expand via single relation field",
+			"demo3",
+			"lcl9d87w22ml6jy",
+			[]string{"demo4_via_rel_one_no_cascade_required"},
+			func(c *models.Collection, ids []string) ([]*models.Record, error) {
+				return app.Dao().FindRecordsByIds(c.Id, ids, nil)
+			},
+			1,
+			0,
+		},
+		{
+			"nested indirect expand via single relation field",
 			"demo3",
 			"lcl9d87w22ml6jy",
 			[]string{
@@ -349,6 +388,19 @@ func TestExpandRecord(t *testing.T) {
 				return app.Dao().FindRecordsByIds(c.Id, ids, nil)
 			},
 			5,
+			0,
+		},
+		{
+			"nested indirect expand via single relation field",
+			"demo3",
+			"lcl9d87w22ml6jy",
+			[]string{
+				"demo4_via_rel_many_no_cascade_required.self_rel_many.rel_many_no_cascade_required.demo4_via_rel_many_no_cascade_required",
+			},
+			func(c *models.Collection, ids []string) ([]*models.Record, error) {
+				return app.Dao().FindRecordsByIds(c.Id, ids, nil)
+			},
+			7,
 			0,
 		},
 	}
@@ -372,6 +424,8 @@ func TestExpandRecord(t *testing.T) {
 }
 
 func TestIndirectExpandSingeVsArrayResult(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -382,21 +436,23 @@ func TestIndirectExpandSingeVsArrayResult(t *testing.T) {
 
 	// non-unique indirect expand
 	{
-		errs := app.Dao().ExpandRecord(record, []string{"demo4(rel_one_cascade)"}, func(c *models.Collection, ids []string) ([]*models.Record, error) {
+		errs := app.Dao().ExpandRecord(record, []string{"demo4_via_rel_one_cascade"}, func(c *models.Collection, ids []string) ([]*models.Record, error) {
 			return app.Dao().FindRecordsByIds(c.Id, ids, nil)
 		})
 		if len(errs) > 0 {
 			t.Fatal(errs)
 		}
 
-		result, ok := record.Expand()["demo4(rel_one_cascade)"].([]*models.Record)
+		result, ok := record.Expand()["demo4_via_rel_one_cascade"].([]*models.Record)
 		if !ok {
 			t.Fatalf("Expected the expanded result to be a slice, got %v", result)
 		}
 	}
 
-	// mock a unique constraint for the rel_one_cascade field
+	// unique indirect expand
 	{
+		// mock a unique constraint for the rel_one_cascade field
+		// ---
 		demo4, err := app.Dao().FindCollectionByNameOrId("demo4")
 		if err != nil {
 			t.Fatal(err)
@@ -407,18 +463,16 @@ func TestIndirectExpandSingeVsArrayResult(t *testing.T) {
 		if err := app.Dao().SaveCollection(demo4); err != nil {
 			t.Fatalf("Failed to mock unique constraint: %v", err)
 		}
-	}
+		// ---
 
-	// non-unique indirect expand
-	{
-		errs := app.Dao().ExpandRecord(record, []string{"demo4(rel_one_cascade)"}, func(c *models.Collection, ids []string) ([]*models.Record, error) {
+		errs := app.Dao().ExpandRecord(record, []string{"demo4_via_rel_one_cascade"}, func(c *models.Collection, ids []string) ([]*models.Record, error) {
 			return app.Dao().FindRecordsByIds(c.Id, ids, nil)
 		})
 		if len(errs) > 0 {
 			t.Fatal(errs)
 		}
 
-		result, ok := record.Expand()["demo4(rel_one_cascade)"].(*models.Record)
+		result, ok := record.Expand()["demo4_via_rel_one_cascade"].(*models.Record)
 		if !ok {
 			t.Fatalf("Expected the expanded result to be a single model, got %v", result)
 		}

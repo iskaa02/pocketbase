@@ -1,12 +1,14 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/plugins/jsvm"
@@ -94,7 +96,7 @@ declare function routerAdd(
  * ` + "```" + `js
  * routerUse((next) => {
  *     return (c) => {
- *         console.log(c.Path())
+ *         console.log(c.path())
  *         return next(c)
  *     }
  * })
@@ -208,6 +210,20 @@ declare var $template: template.Registry
  * @group PocketBase
  */
 declare function readerToString(reader: any, maxBytes?: number): string;
+
+/**
+ * sleep pauses the current goroutine for at least the specified user duration (in ms).
+ * A zero or negative duration returns immediately.
+ *
+ * Example:
+ *
+ * ` + "```" + `js
+ * sleep(250) // sleeps for 250ms
+ * ` + "```" + `
+ *
+ * @group PocketBase
+ */
+declare function sleep(milliseconds: number): void;
 
 /**
  * arrayOf creates a placeholder array of the specified models.
@@ -429,7 +445,7 @@ declare class DateTime implements types.DateTime {
 interface ValidationError extends ozzo_validation.Error{} // merge
 /**
  * ValidationError defines a single formatted data validation error,
- * usually used as part of a error response.
+ * usually used as part of an error response.
  *
  * ` + "```" + `js
  * new ValidationError("invalid_title", "Title is not valid")
@@ -448,6 +464,57 @@ interface Dao extends daos.Dao{} // merge
  */
 declare class Dao implements daos.Dao {
   constructor(concurrentDB?: dbx.Builder, nonconcurrentDB?: dbx.Builder)
+}
+
+interface Cookie extends http.Cookie{} // merge
+/**
+ * A Cookie represents an HTTP cookie as sent in the Set-Cookie header of an
+ * HTTP response.
+ *
+ * Example:
+ *
+ * ` + "```" + `js
+ * routerAdd("POST", "/example", (c) => {
+ *     c.setCookie(new Cookie({
+ *         name:     "example_name",
+ *         value:    "example_value",
+ *         path:     "/",
+ *         domain:   "example.com",
+ *         maxAge:   10,
+ *         secure:   true,
+ *         httpOnly: true,
+ *         sameSite: 3,
+ *     }))
+ *
+ *     return c.redirect(200, "/");
+ * })
+ * ` + "```" + `
+ *
+ * @group PocketBase
+ */
+declare class Cookie implements http.Cookie {
+  constructor(options?: Partial<http.Cookie>)
+}
+
+interface SubscriptionMessage extends subscriptions.Message{} // merge
+/**
+ * SubscriptionMessage defines a realtime subscription payload.
+ *
+ * Example:
+ *
+ * ` + "```" + `js
+ * onRealtimeConnectRequest((e) => {
+ *     e.client.send(new SubscriptionMessage({
+ *         name: "example",
+ *         data: '{"greeting": "Hello world"}'
+ *     }))
+ * })
+ * ` + "```" + `
+ *
+ * @group PocketBase
+ */
+declare class SubscriptionMessage implements subscriptions.Message {
+  constructor(options?: Partial<subscriptions.Message>)
 }
 
 // -------------------------------------------------------------------
@@ -508,6 +575,23 @@ declare namespace $tokens {
 }
 
 // -------------------------------------------------------------------
+// mailsBinds
+// -------------------------------------------------------------------
+
+/**
+ * ` + "`" + `$mails` + "`" + ` defines helpers to send common
+ * admins and auth records emails like verification, password reset, etc.
+ *
+ * @group PocketBase
+ */
+declare namespace $mails {
+  let sendAdminPasswordReset:  mails.sendAdminPasswordReset
+  let sendRecordPasswordReset: mails.sendRecordPasswordReset
+  let sendRecordVerification:  mails.sendRecordVerification
+  let sendRecordChangeEmail:   mails.sendRecordChangeEmail
+}
+
+// -------------------------------------------------------------------
 // securityBinds
 // -------------------------------------------------------------------
 
@@ -522,9 +606,6 @@ declare namespace $security {
   let randomStringWithAlphabet:       security.randomStringWithAlphabet
   let pseudorandomString:             security.pseudorandomString
   let pseudorandomStringWithAlphabet: security.pseudorandomStringWithAlphabet
-  let parseUnverifiedJWT:             security.parseUnverifiedJWT
-  let parseJWT:                       security.parseJWT
-  let createJWT:                      security.newJWT
   let encrypt:                        security.encrypt
   let decrypt:                        security.decrypt
   let hs256:                          security.hs256
@@ -533,6 +614,17 @@ declare namespace $security {
   let md5:                            security.md5
   let sha256:                         security.sha256
   let sha512:                         security.sha512
+  let createJWT:                      security.newJWT
+
+  /**
+   * {@inheritDoc security.parseUnverifiedJWT}
+   */
+  export function parseUnverifiedJWT(token: string): _TygojaDict
+
+  /**
+   * {@inheritDoc security.parseJWT}
+   */
+  export function parseJWT(token: string, verificationKey: string): _TygojaDict
 }
 
 // -------------------------------------------------------------------
@@ -549,6 +641,22 @@ declare namespace $filesystem {
   let fileFromPath:      filesystem.newFileFromPath
   let fileFromBytes:     filesystem.newFileFromBytes
   let fileFromMultipart: filesystem.newFileFromMultipart
+
+  /**
+   * fileFromUrl creates a new File from the provided url by
+   * downloading the resource and creating a BytesReader.
+   *
+   * Example:
+   *
+   * ` + "```" + `js
+   * // with default max timeout of 120sec
+   * const file1 = $filesystem.fileFromUrl("https://...")
+   *
+   * // with custom timeout of 15sec
+   * const file2 = $filesystem.fileFromUrl("https://...", 15)
+   * ` + "```" + `
+   */
+  export function fileFromUrl(url: string, secTimeout?: number): filesystem.File
 }
 
 // -------------------------------------------------------------------
@@ -590,7 +698,26 @@ declare namespace $filepath {
  * @group PocketBase
  */
 declare namespace $os {
-  export let exec:      exec.command
+  /**
+   * Legacy alias for $os.cmd().
+   */
+  export let exec: exec.command
+
+  /**
+   * Prepares an external OS command.
+   *
+   * Example:
+   *
+   * ` + "```" + `js
+   * // prepare the command to execute
+   * const cmd = $os.cmd('ls', '-sl')
+   *
+   * // execute the command and return its standard output as string
+   * const output = String.fromCharCode(...cmd.output());
+   * ` + "```" + `
+   */
+  export let cmd: exec.command
+
   export let args:      os.args
   export let exit:      os.exit
   export let getenv:    os.getenv
@@ -858,6 +985,7 @@ declare namespace $apis {
    */
   export function staticDirectoryHandler(dir: string, indexFallback: boolean): echo.HandlerFunc
 
+  let requireGuestOnly:          apis.requireGuestOnly
   let requireRecordAuth:         apis.requireRecordAuth
   let requireAdminAuth:          apis.requireAdminAuth
   let requireAdminAuthOnlyIfAny: apis.requireAdminAuthOnlyIfAny
@@ -866,6 +994,8 @@ declare namespace $apis {
   let activityLogger:            apis.activityLogger
   let requestInfo:               apis.requestInfo
   let recordAuthResponse:        apis.recordAuthResponse
+  let gzip:                      middleware.gzip
+  let bodyLimit:                 middleware.bodyLimit
   let enrichRecord:              apis.enrichRecord
   let enrichRecords:             apis.enrichRecords
 }
@@ -873,6 +1003,12 @@ declare namespace $apis {
 // -------------------------------------------------------------------
 // httpClientBinds
 // -------------------------------------------------------------------
+
+// extra FormData overload to prevent TS warnings when used with non File/Blob value.
+interface FormData {
+  append(key:string, value:any): void
+  set(key:string, value:any): void
+}
 
 /**
  * ` + "`" + `$http` + "`" + ` defines common methods for working with HTTP requests.
@@ -888,7 +1024,7 @@ declare namespace $http {
    * ` + "```" + `js
    * const res = $http.send({
    *     url:    "https://example.com",
-   *     data:   {"title": "test"}
+   *     body:   JSON.stringify({"title": "test"})
    *     method: "post",
    * })
    *
@@ -901,7 +1037,7 @@ declare namespace $http {
    */
   function send(config: {
     url:      string,
-    body?:    string,
+    body?:    string|FormData,
     method?:  string, // default to "GET"
     headers?: { [key:string]: string },
     timeout?: number, // default to 120
@@ -941,12 +1077,14 @@ func main() {
 
 	gen := tygoja.New(tygoja.Config{
 		Packages: map[string][]string{
+			"github.com/labstack/echo/v5/middleware":            {"Gzip", "BodyLimit"},
 			"github.com/go-ozzo/ozzo-validation/v4":             {"Error"},
 			"github.com/pocketbase/dbx":                         {"*"},
 			"github.com/pocketbase/pocketbase/tools/security":   {"*"},
 			"github.com/pocketbase/pocketbase/tools/filesystem": {"*"},
 			"github.com/pocketbase/pocketbase/tools/template":   {"*"},
 			"github.com/pocketbase/pocketbase/tokens":           {"*"},
+			"github.com/pocketbase/pocketbase/mails":            {"*"},
 			"github.com/pocketbase/pocketbase/apis":             {"*"},
 			"github.com/pocketbase/pocketbase/forms":            {"*"},
 			"github.com/pocketbase/pocketbase":                  {"*"},
@@ -997,6 +1135,10 @@ func main() {
 	result = strings.ReplaceAll(result, "pocketbase.PocketBase", "PocketBase")
 	result = strings.ReplaceAll(result, "ORIGINAL_CORE_APP", "core.App")
 	result = strings.ReplaceAll(result, "ORIGINAL_POCKETBASE", "pocketbase.PocketBase")
+
+	// prepend a timestamp with the generation time
+	// so that it can be compared without reading the entire file
+	result = fmt.Sprintf("// %d\n%s", time.Now().Unix(), result)
 
 	parentDir := filepath.Dir(filename)
 	typesFile := filepath.Join(parentDir, "generated", "types.d.ts")

@@ -16,6 +16,8 @@ import (
 )
 
 func TestNewCollectionUpsert(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -88,6 +90,8 @@ func TestNewCollectionUpsert(t *testing.T) {
 }
 
 func TestCollectionUpsertValidateAndSubmit(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -101,6 +105,17 @@ func TestCollectionUpsertValidateAndSubmit(t *testing.T) {
 		{"empty create (auth)", "", `{"type":"auth"}`, []string{"name"}},
 		{"empty create (view)", "", `{"type":"view"}`, []string{"name", "options"}},
 		{"empty update", "demo2", "{}", []string{}},
+		{
+			"collection and field with _via_ names",
+			"",
+			`{
+				"name": "a_via_b",
+				"schema": [
+					{"name":"c_via_d","type":"text"}
+				]
+			}`,
+			[]string{"name", "schema"},
+		},
 		{
 			"create failure",
 			"",
@@ -654,6 +669,8 @@ func TestCollectionUpsertValidateAndSubmit(t *testing.T) {
 }
 
 func TestCollectionUpsertSubmitInterceptors(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
@@ -704,6 +721,8 @@ func TestCollectionUpsertSubmitInterceptors(t *testing.T) {
 }
 
 func TestCollectionUpsertWithCustomId(t *testing.T) {
+	t.Parallel()
+
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 

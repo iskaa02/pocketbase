@@ -12,7 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -97,20 +97,17 @@ func Register(app core.App, rootCmd *cobra.Command, config Config) error {
 
 type plugin struct {
 	app            core.App
-	currentVersion string
 	config         Config
+	currentVersion string
 }
 
 func (p *plugin) updateCmd() *cobra.Command {
 	var withBackup bool
 
 	command := &cobra.Command{
-		Use:   "update",
-		Short: "Automatically updates the current PocketBase executable with the latest available version",
-		// @todo remove after logs generalization
-		// prevents printing the error log twice
-		SilenceErrors: true,
-		SilenceUsage:  true,
+		Use:          "update",
+		Short:        "Automatically updates the current app executable with the latest available version",
+		SilenceUsage: true,
 		RunE: func(command *cobra.Command, args []string) error {
 			var needConfirm bool
 			if isMaybeRunningInDocker() {
@@ -163,7 +160,7 @@ func (p *plugin) update(withBackup bool) error {
 	}
 
 	if compareVersions(strings.TrimPrefix(p.currentVersion, "v"), strings.TrimPrefix(latest.Tag, "v")) <= 0 {
-		color.Green("You already have the latest PocketBase %s.", p.currentVersion)
+		color.Green("You already have the latest version %s.", p.currentVersion)
 		return nil
 	}
 
@@ -221,8 +218,13 @@ func (p *plugin) update(withBackup bool) error {
 	}
 
 	tryToRevertExecChanges := func() {
-		if revertErr := os.Rename(renamedOldExec, oldExec); revertErr != nil && p.app.IsDebug() {
-			log.Println(revertErr)
+		if revertErr := os.Rename(renamedOldExec, oldExec); revertErr != nil {
+			p.app.Logger().Debug(
+				"Failed to revert executable",
+				slog.String("old", renamedOldExec),
+				slog.String("new", oldExec),
+				slog.String("error", revertErr.Error()),
+			)
 		}
 	}
 
@@ -244,6 +246,16 @@ func (p *plugin) update(withBackup bool) error {
 
 	color.HiBlack("---")
 	color.Green("Update completed successfully! You can start the executable as usual.")
+
+	// print the release notes
+	if latest.Body != "" {
+		fmt.Print("\n")
+		color.Cyan("Here is a list with some of the %s changes:", latest.Tag)
+		// remove the update command note to avoid "stuttering"
+		releaseNotes := strings.TrimSpace(strings.Replace(latest.Body, "> _To update the prebuilt executable you can run `./"+p.config.ArchiveExecutable+" update`._", "", 1))
+		color.Cyan(releaseNotes)
+		fmt.Print("\n")
+	}
 
 	return nil
 }

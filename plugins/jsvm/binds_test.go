@@ -2,6 +2,7 @@ package jsvm
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -46,7 +47,29 @@ func TestBaseBindsCount(t *testing.T) {
 	vm := goja.New()
 	baseBinds(vm)
 
-	testBindsCount(vm, "this", 14, t)
+	testBindsCount(vm, "this", 17, t)
+}
+
+func TestBaseBindsSleep(t *testing.T) {
+	app, _ := tests.NewTestApp()
+	defer app.Cleanup()
+
+	vm := goja.New()
+	baseBinds(vm)
+	vm.Set("reader", strings.NewReader("test"))
+
+	start := time.Now()
+	_, err := vm.RunString(`
+		sleep(100);
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	lasted := time.Since(start).Milliseconds()
+	if lasted < 100 || lasted > 150 {
+		t.Fatalf("Expected to sleep for ~100ms, got %d", lasted)
+	}
 }
 
 func TestBaseBindsReaderToString(t *testing.T) {
@@ -62,6 +85,69 @@ func TestBaseBindsReaderToString(t *testing.T) {
 
 		if (result != "test") {
 			throw new Error('Expected "test", got ' + result);
+		}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBaseBindsCookie(t *testing.T) {
+	app, _ := tests.NewTestApp()
+	defer app.Cleanup()
+
+	vm := goja.New()
+	baseBinds(vm)
+
+	_, err := vm.RunString(`
+		const cookie = new Cookie({
+			name:     "example_name",
+			value:    "example_value",
+			path:     "/example_path",
+			domain:   "example.com",
+			maxAge:   10,
+			secure:   true,
+			httpOnly: true,
+			sameSite: 3,
+		});
+
+		const result = cookie.string();
+
+		const expected = "example_name=example_value; Path=/example_path; Domain=example.com; Max-Age=10; HttpOnly; Secure; SameSite=Strict";
+
+		if (expected != result) {
+			throw new("Expected \n" + expected + "\ngot\n" + result);
+		}
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestBaseBindsSubscriptionMessage(t *testing.T) {
+	app, _ := tests.NewTestApp()
+	defer app.Cleanup()
+
+	vm := goja.New()
+	baseBinds(vm)
+	vm.Set("bytesToString", func(b []byte) string {
+		return string(b)
+	})
+
+	_, err := vm.RunString(`
+		const payload = {
+			name: "test",
+			data: '{"test":123}'
+		}
+
+		const result = new SubscriptionMessage(payload);
+
+		if (result.name != payload.name) {
+			throw new("Expected name " + payload.name + ", got " + result.name);
+		}
+
+		if (bytesToString(result.data) != payload.data) {
+			throw new("Expected data '" + payload.data + "', got '" + bytesToString(result.data) + "'");
 		}
 	`)
 	if err != nil {
@@ -721,39 +807,57 @@ func TestSecurityJWTBinds(t *testing.T) {
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
-	vm := goja.New()
-	baseBinds(vm)
-	securityBinds(vm)
-
 	sceneraios := []struct {
-		js       string
-		expected string
+		name string
+		js   string
 	}{
 		{
-			`$security.parseUnverifiedJWT("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.aXzC7q7z1lX_hxk5P0R368xEU7H1xRwnBQQcLAmG0EY")`,
-			`{"name":"John Doe","sub":"1234567890"}`,
+			"$security.parseUnverifiedJWT",
+			`
+				const result = $security.parseUnverifiedJWT("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.aXzC7q7z1lX_hxk5P0R368xEU7H1xRwnBQQcLAmG0EY")
+				if (result.name != "John Doe") {
+					throw new Error("Expected result.name 'John Doe', got " + result.name)
+				}
+				if (result.sub != "1234567890") {
+					throw new Error("Expected result.sub '1234567890', got " + result.sub)
+				}
+			`,
 		},
 		{
-			`$security.parseJWT("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.aXzC7q7z1lX_hxk5P0R368xEU7H1xRwnBQQcLAmG0EY", "test")`,
-			`{"name":"John Doe","sub":"1234567890"}`,
+			"$security.parseJWT",
+			`
+				const result = $security.parseJWT("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.aXzC7q7z1lX_hxk5P0R368xEU7H1xRwnBQQcLAmG0EY", "test")
+				if (result.name != "John Doe") {
+					throw new Error("Expected result.name 'John Doe', got " + result.name)
+				}
+				if (result.sub != "1234567890") {
+					throw new Error("Expected result.sub '1234567890', got " + result.sub)
+				}
+			`,
 		},
 		{
-			`$security.createJWT({"exp": 123}, "test", 0)`, // overwrite the exp claim for static token
-			`"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEyM30.7gbv7w672gApdBRASI6OniCtKwkKjhieSxsr6vxSrtw"`,
+			"$security.createJWT",
+			`
+				// overwrite the exp claim for static token
+				const result = $security.createJWT({"exp": 123}, "test", 0)
+
+				const expected = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEyM30.7gbv7w672gApdBRASI6OniCtKwkKjhieSxsr6vxSrtw";
+				if (result != expected) {
+					throw new Error("Expected token \n" + expected + ", got \n" + result)
+				}
+			`,
 		},
 	}
 
 	for _, s := range sceneraios {
-		t.Run(s.js, func(t *testing.T) {
-			result, err := vm.RunString(s.js)
+		t.Run(s.name, func(t *testing.T) {
+			vm := goja.New()
+			baseBinds(vm)
+			securityBinds(vm)
+
+			_, err := vm.RunString(s.js)
 			if err != nil {
 				t.Fatalf("Failed to execute js script, got %v", err)
-			}
-
-			raw, _ := json.Marshal(result.Export())
-
-			if string(raw) != s.expected {
-				t.Fatalf("Expected \n%s, \ngot \n%s", s.expected, raw)
 			}
 		})
 	}
@@ -787,13 +891,23 @@ func TestFilesystemBinds(t *testing.T) {
 	app, _ := tests.NewTestApp()
 	defer app.Cleanup()
 
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/error" {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
+
+		fmt.Fprintf(w, "test")
+	}))
+	defer srv.Close()
+
 	vm := goja.New()
 	vm.Set("mh", &multipart.FileHeader{Filename: "test"})
 	vm.Set("testFile", filepath.Join(app.DataDir(), "data.db"))
+	vm.Set("baseUrl", srv.URL)
 	baseBinds(vm)
 	filesystemBinds(vm)
 
-	testBindsCount(vm, "$filesystem", 3, t)
+	testBindsCount(vm, "$filesystem", 4, t)
 
 	// fileFromPath
 	{
@@ -836,6 +950,28 @@ func TestFilesystemBinds(t *testing.T) {
 			t.Fatalf("[fileFromMultipart] Expected file with name %q, got %v", file.OriginalName, file)
 		}
 	}
+
+	// fileFromUrl (success)
+	{
+		v, err := vm.RunString(`$filesystem.fileFromUrl(baseUrl + "/test")`)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		file, _ := v.Export().(*filesystem.File)
+
+		if file == nil || file.OriginalName != "test" {
+			t.Fatalf("[fileFromUrl] Expected file with name %q, got %v", file.OriginalName, file)
+		}
+	}
+
+	// fileFromUrl (failure)
+	{
+		_, err := vm.RunString(`$filesystem.fileFromUrl(baseUrl + "/error")`)
+		if err == nil {
+			t.Fatal("Expected url fetch error")
+		}
+	}
 }
 
 func TestFormsBinds(t *testing.T) {
@@ -853,7 +989,7 @@ func TestApisBindsCount(t *testing.T) {
 	apisBinds(vm)
 
 	testBindsCount(vm, "this", 6, t)
-	testBindsCount(vm, "$apis", 11, t)
+	testBindsCount(vm, "$apis", 14, t)
 }
 
 func TestApisBindsApiError(t *testing.T) {
@@ -1018,6 +1154,7 @@ func TestHttpClientBindsCount(t *testing.T) {
 	vm := goja.New()
 	httpClientBinds(vm)
 
+	testBindsCount(vm, "this", 2, t) // + FormData
 	testBindsCount(vm, "$http", 1, t)
 }
 
@@ -1120,6 +1257,15 @@ func TestHttpClientBindsSend(t *testing.T) {
 			headers: {"content-type": "text/plain"},
 		})
 
+		// with FormData
+		const formData = new FormData()
+		formData.append("title", "123")
+		const test3 = $http.send({
+			url: testUrl,
+			body: formData,
+			headers: {"content-type": "text/plain"}, // should be ignored
+		})
+
 		const scenarios = [
 			[test0, {
 				"statusCode": "400",
@@ -1141,6 +1287,18 @@ func TestHttpClientBindsSend(t *testing.T) {
 				"json.method":               "GET",
 				"json.headers.content_type": "text/plain",
 			}],
+			[test3, {
+				"statusCode":                "200",
+				"headers.X-Custom.0":        "custom_header",
+				"cookies.sessionId.value":   "123456",
+				"json.method":               "GET",
+				"json.body": [
+					"\r\nContent-Disposition: form-data; name=\"title\"\r\n\r\n123\r\n--",
+				],
+				"json.headers.content_type": [
+					"multipart/form-data; boundary="
+				],
+			}],
 		]
 
 		for (let scenario of scenarios) {
@@ -1148,8 +1306,20 @@ func TestHttpClientBindsSend(t *testing.T) {
 			const expectations = scenario[1];
 
 			for (let key in expectations) {
-				if (getNestedVal(result, key) != expectations[key]) {
-					throw new Error('Expected ' + key + ' ' + expectations[key] + ', got: ' + result.raw);
+				const value = getNestedVal(result, key);
+				const expectation = expectations[key]
+				if (Array.isArray(expectation)) {
+					// check for partial match(es)
+					for (let exp of expectation) {
+						if (!value.includes(exp)) {
+							throw new Error('Expected ' + key + ' to contain ' + exp + ', got: ' + result.raw);
+						}
+					}
+				} else {
+					// check for direct match
+					if (value != expectation) {
+						throw new Error('Expected ' + key + ' ' + expectation + ', got: ' + result.raw);
+					}
 				}
 			}
 		}
@@ -1372,5 +1542,5 @@ func TestOsBindsCount(t *testing.T) {
 	vm := goja.New()
 	osBinds(vm)
 
-	testBindsCount(vm, "$os", 16, t)
+	testBindsCount(vm, "$os", 17, t)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/pocketbase/pocketbase/models/settings"
 	"github.com/pocketbase/pocketbase/tools/auth"
 	"github.com/pocketbase/pocketbase/tools/mailer"
+	"github.com/pocketbase/pocketbase/tools/types"
 )
 
 func TestSettingsValidate(t *testing.T) {
@@ -73,6 +74,14 @@ func TestSettingsValidate(t *testing.T) {
 	s.VKAuth.ClientId = ""
 	s.YandexAuth.Enabled = true
 	s.YandexAuth.ClientId = ""
+	s.PatreonAuth.Enabled = true
+	s.PatreonAuth.ClientId = ""
+	s.MailcowAuth.Enabled = true
+	s.MailcowAuth.ClientId = ""
+	s.BitbucketAuth.Enabled = true
+	s.BitbucketAuth.ClientId = ""
+	s.PlanningcenterAuth.Enabled = true
+	s.PlanningcenterAuth.ClientId = ""
 
 	// check if Validate() is triggering the members validate methods.
 	err := s.Validate()
@@ -114,6 +123,10 @@ func TestSettingsValidate(t *testing.T) {
 		`"instagramAuth":{`,
 		`"vkAuth":{`,
 		`"yandexAuth":{`,
+		`"patreonAuth":{`,
+		`"mailcowAuth":{`,
+		`"bitbucketAuth":{`,
+		`"planningcenterAuth":{`,
 	}
 
 	errBytes, _ := json.Marshal(err)
@@ -187,6 +200,14 @@ func TestSettingsMerge(t *testing.T) {
 	s2.VKAuth.ClientId = "vk_test"
 	s2.YandexAuth.Enabled = true
 	s2.YandexAuth.ClientId = "yandex_test"
+	s2.PatreonAuth.Enabled = true
+	s2.PatreonAuth.ClientId = "patreon_test"
+	s2.MailcowAuth.Enabled = true
+	s2.MailcowAuth.ClientId = "mailcow_test"
+	s2.BitbucketAuth.Enabled = true
+	s2.BitbucketAuth.ClientId = "bitbucket_test"
+	s2.PlanningcenterAuth.Enabled = true
+	s2.PlanningcenterAuth.ClientId = "planningcenter_test"
 
 	if err := s1.Merge(s2); err != nil {
 		t.Fatal(err)
@@ -277,6 +298,10 @@ func TestSettingsRedactClone(t *testing.T) {
 	s1.InstagramAuth.ClientSecret = testSecret
 	s1.VKAuth.ClientSecret = testSecret
 	s1.YandexAuth.ClientSecret = testSecret
+	s1.PatreonAuth.ClientSecret = testSecret
+	s1.MailcowAuth.ClientSecret = testSecret
+	s1.BitbucketAuth.ClientSecret = testSecret
+	s1.PlanningcenterAuth.ClientSecret = testSecret
 
 	s1Bytes, err := json.Marshal(s1)
 	if err != nil {
@@ -335,6 +360,10 @@ func TestNamedAuthProviderConfigs(t *testing.T) {
 	s.InstagramAuth.ClientId = "instagram_test"
 	s.VKAuth.ClientId = "vk_test"
 	s.YandexAuth.ClientId = "yandex_test"
+	s.PatreonAuth.ClientId = "patreon_test"
+	s.MailcowAuth.ClientId = "mailcow_test"
+	s.BitbucketAuth.ClientId = "bitbucket_test"
+	s.PlanningcenterAuth.ClientId = "planningcenter_test"
 
 	result := s.NamedAuthProviderConfigs()
 
@@ -366,6 +395,10 @@ func TestNamedAuthProviderConfigs(t *testing.T) {
 		`"instagram":{"enabled":false,"clientId":"instagram_test"`,
 		`"vk":{"enabled":false,"clientId":"vk_test"`,
 		`"yandex":{"enabled":false,"clientId":"yandex_test"`,
+		`"patreon":{"enabled":false,"clientId":"patreon_test"`,
+		`"mailcow":{"enabled":false,"clientId":"mailcow_test"`,
+		`"bitbucket":{"enabled":false,"clientId":"bitbucket_test"`,
+		`"planningcenter":{"enabled":false,"clientId":"planningcenter_test"`,
 	}
 	for _, p := range expectedParts {
 		if !strings.Contains(encodedStr, p) {
@@ -925,6 +958,8 @@ func TestAuthProviderConfigValidate(t *testing.T) {
 				Enabled:      true,
 				ClientId:     "test",
 				ClientSecret: "test",
+				DisplayName:  "test",
+				PKCE:         types.Pointer(true),
 				AuthUrl:      "https://example.com",
 				TokenUrl:     "https://example.com",
 				UserApiUrl:   "https://example.com",
@@ -962,6 +997,8 @@ func TestAuthProviderConfigSetupProvider(t *testing.T) {
 		AuthUrl:      "test_AuthUrl",
 		UserApiUrl:   "test_UserApiUrl",
 		TokenUrl:     "test_TokenUrl",
+		DisplayName:  "test_DisplayName",
+		PKCE:         types.Pointer(true),
 	}
 	if err := c2.SetupProvider(provider); err != nil {
 		t.Error(err)
@@ -985,5 +1022,13 @@ func TestAuthProviderConfigSetupProvider(t *testing.T) {
 
 	if provider.TokenUrl() != c2.TokenUrl {
 		t.Fatalf("Expected TokenUrl %s, got %s", c2.TokenUrl, provider.TokenUrl())
+	}
+
+	if provider.DisplayName() != c2.DisplayName {
+		t.Fatalf("Expected DisplayName %s, got %s", c2.DisplayName, provider.DisplayName())
+	}
+
+	if provider.PKCE() != *c2.PKCE {
+		t.Fatalf("Expected PKCE %v, got %v", *c2.PKCE, provider.PKCE())
 	}
 }

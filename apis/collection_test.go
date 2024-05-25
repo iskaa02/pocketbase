@@ -17,6 +17,8 @@ import (
 )
 
 func TestCollectionsList(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "unauthorized",
@@ -125,6 +127,8 @@ func TestCollectionsList(t *testing.T) {
 }
 
 func TestCollectionView(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "unauthorized",
@@ -193,6 +197,8 @@ func TestCollectionView(t *testing.T) {
 }
 
 func TestCollectionDelete(t *testing.T) {
+	t.Parallel()
+
 	ensureDeletedFiles := func(app *tests.TestApp, collectionId string) {
 		storageDir := filepath.Join(app.DataDir(), "storage", collectionId)
 
@@ -338,6 +344,8 @@ func TestCollectionDelete(t *testing.T) {
 }
 
 func TestCollectionCreate(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "unauthorized",
@@ -425,7 +433,7 @@ func TestCollectionCreate(t *testing.T) {
 				`"type":"auth"`,
 				`"system":false`,
 				`"schema":[{"system":false,"id":"12345789","name":"test","type":"text","required":false,"presentable":false,"unique":false,"options":{"min":null,"max":null,"pattern":""}}]`,
-				`"options":{"allowEmailAuth":false,"allowOAuth2Auth":false,"allowUsernameAuth":false,"exceptEmailDomains":null,"manageRule":null,"minPasswordLength":0,"onlyEmailDomains":null,"requireEmail":false}`,
+				`"options":{"allowEmailAuth":false,"allowOAuth2Auth":false,"allowUsernameAuth":false,"exceptEmailDomains":null,"manageRule":null,"minPasswordLength":0,"onlyEmailDomains":null,"onlyVerified":false,"requireEmail":false}`,
 			},
 			ExpectedEvents: map[string]int{
 				"OnModelBeforeCreate":             1,
@@ -715,6 +723,8 @@ func TestCollectionCreate(t *testing.T) {
 }
 
 func TestCollectionUpdate(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "unauthorized",
@@ -883,7 +893,8 @@ func TestCollectionUpdate(t *testing.T) {
 					{"type":"text","name":"password"},
 					{"type":"text","name":"passwordConfirm"},
 					{"type":"text","name":"oldPassword"}
-				]
+				],
+				"indexes": []
 			}`),
 			RequestHeaders: map[string]string{
 				"Authorization": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6InN5d2JoZWNuaDQ2cmhtMCIsInR5cGUiOiJhZG1pbiIsImV4cCI6MjIwODk4NTI2MX0.M1m--VOqGyv0d23eeUc0r9xE8ZzHaYVmVFw1VZW6gT8",
@@ -1082,6 +1093,8 @@ func TestCollectionUpdate(t *testing.T) {
 }
 
 func TestCollectionsImport(t *testing.T) {
+	t.Parallel()
+
 	totalCollections := 11
 
 	scenarios := []tests.ApiScenario{
@@ -1141,7 +1154,7 @@ func TestCollectionsImport(t *testing.T) {
 			},
 			ExpectedEvents: map[string]int{
 				"OnCollectionsBeforeImportRequest": 1,
-				"OnModelBeforeDelete":              4,
+				"OnModelBeforeDelete":              1,
 			},
 			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
 				collections := []*models.Collection{}

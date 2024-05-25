@@ -15,16 +15,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/disintegration/imaging"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/pocketbase/pocketbase/tools/list"
 	"gocloud.dev/blob"
 	"gocloud.dev/blob/fileblob"
-	"gocloud.dev/blob/s3blob"
 )
+
+var gcpIgnoreHeaders = []string{"Accept-Encoding"}
 
 type System struct {
 	ctx    context.Context
@@ -44,19 +46,38 @@ func NewS3(
 ) (*System, error) {
 	ctx := context.Background() // default context
 
-	cred := credentials.NewStaticCredentials(accessKey, secretKey, "")
+	cred := credentials.NewStaticCredentialsProvider(accessKey, secretKey, "")
 
-	sess, err := session.NewSession(&aws.Config{
-		Region:           aws.String(region),
-		Endpoint:         aws.String(endpoint),
-		Credentials:      cred,
-		S3ForcePathStyle: aws.Bool(s3ForcePathStyle),
-	})
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithCredentialsProvider(cred),
+		config.WithRegion(region),
+		config.WithEndpointResolverWithOptions(aws.EndpointResolverWithOptionsFunc(func(service, region string, options ...interface{}) (aws.Endpoint, error) {
+			// ensure that the endpoint has url scheme for
+			// backward compatibility with v1 of the aws sdk
+			prefixedEndpoint := endpoint
+			if !strings.Contains(endpoint, "://") {
+				prefixedEndpoint = "https://" + endpoint
+			}
+
+			return aws.Endpoint{URL: prefixedEndpoint, SigningRegion: region}, nil
+		})),
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	bucket, err := s3blob.OpenBucket(ctx, sess, bucketName, nil)
+	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
+		o.UsePathStyle = s3ForcePathStyle
+
+		// Google Cloud Storage alters the Accept-Encoding header,
+		// which breaks the v2 request signature
+		// (https://github.com/aws/aws-sdk-go-v2/issues/1816)
+		if strings.Contains(endpoint, "storage.googleapis.com") {
+			ignoreSigningHeaders(o, gcpIgnoreHeaders)
+		}
+	})
+
+	bucket, err := OpenBucketV2(ctx, client, bucketName, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -115,6 +136,13 @@ func (s *System) GetFile(fileKey string) (*blob.Reader, error) {
 	}
 
 	return br, nil
+}
+
+// Copy copies the file stored at srcKey to dstKey.
+//
+// If dstKey file already exists, it is overwritten.
+func (s *System) Copy(srcKey, dstKey string) error {
+	return s.bucket.Copy(s.ctx, dstKey, srcKey, nil)
 }
 
 // List returns a flat list with info for all files under the specified prefix.
@@ -252,7 +280,7 @@ func (s *System) DeletePrefix(prefix string) []error {
 	failed := []error{}
 
 	if prefix == "" {
-		failed = append(failed, errors.New("Prefix mustn't be empty."))
+		failed = append(failed, errors.New("prefix mustn't be empty"))
 		return failed
 	}
 
@@ -393,7 +421,7 @@ var ThumbSizeRegex = regexp.MustCompile(`^(\d+)x(\d+)(t|b|f)?$`)
 func (s *System) CreateThumb(originalKey string, thumbKey, thumbSize string) error {
 	sizeParts := ThumbSizeRegex.FindStringSubmatch(thumbSize)
 	if len(sizeParts) != 4 {
-		return errors.New("Thumb size must be in WxH, WxHt, WxHb or WxHf format.")
+		return errors.New("thumb size must be in WxH, WxHt, WxHb or WxHf format")
 	}
 
 	width, _ := strconv.Atoi(sizeParts[1])
@@ -401,7 +429,7 @@ func (s *System) CreateThumb(originalKey string, thumbKey, thumbSize string) err
 	resizeType := sizeParts[3]
 
 	if width == 0 && height == 0 {
-		return errors.New("Thumb width and height cannot be zero at the same time.")
+		return errors.New("thumb width and height cannot be zero at the same time")
 	}
 
 	// fetch the original
@@ -422,21 +450,21 @@ func (s *System) CreateThumb(originalKey string, thumbKey, thumbSize string) err
 
 	if width == 0 || height == 0 {
 		// force resize preserving aspect ratio
-		thumbImg = imaging.Resize(img, width, height, imaging.CatmullRom)
+		thumbImg = imaging.Resize(img, width, height, imaging.Linear)
 	} else {
 		switch resizeType {
 		case "f":
 			// fit
-			thumbImg = imaging.Fit(img, width, height, imaging.CatmullRom)
+			thumbImg = imaging.Fit(img, width, height, imaging.Linear)
 		case "t":
 			// fill and crop from top
-			thumbImg = imaging.Fill(img, width, height, imaging.Top, imaging.CatmullRom)
+			thumbImg = imaging.Fill(img, width, height, imaging.Top, imaging.Linear)
 		case "b":
 			// fill and crop from bottom
-			thumbImg = imaging.Fill(img, width, height, imaging.Bottom, imaging.CatmullRom)
+			thumbImg = imaging.Fill(img, width, height, imaging.Bottom, imaging.Linear)
 		default:
 			// fill and crop from center
-			thumbImg = imaging.Fill(img, width, height, imaging.Center, imaging.CatmullRom)
+			thumbImg = imaging.Fill(img, width, height, imaging.Center, imaging.Linear)
 		}
 	}
 

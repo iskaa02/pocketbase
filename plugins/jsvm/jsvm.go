@@ -9,8 +9,10 @@
 package jsvm
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -39,6 +41,11 @@ const (
 
 // Config defines the config options of the jsvm plugin.
 type Config struct {
+	// OnInit is an optional function that will be called
+	// after a JS runtime is initialized, allowing you to
+	// attach custom Go variables and functions.
+	OnInit func(vm *goja.Runtime)
+
 	// HooksWatch enables auto app restarts when a JS app hook file changes.
 	//
 	// Note that currently the application cannot be automatically restarted on Windows
@@ -77,6 +84,9 @@ type Config struct {
 	// TypeScript declarations file.
 	//
 	// If not set it fallbacks to "pb_data".
+	//
+	// Note: Avoid using the same directory as the HooksDir when HooksWatch is enabled
+	// to prevent unnecessary app restarts when the types file is initially created.
 	TypesDir string
 }
 
@@ -85,7 +95,12 @@ type Config struct {
 //
 // Example usage:
 //
-//	jsvm.MustRegister(app, jsvm.Config{})
+//	jsvm.MustRegister(app, jsvm.Config{
+//		OnInit: func(vm *goja.Runtime) {
+//			// register custom bindings
+//			vm.Set("myCustomVar", 123)
+//		}
+//	})
 func MustRegister(app core.App, config Config) {
 	if err := Register(app, config); err != nil {
 		panic(err)
@@ -117,10 +132,9 @@ func Register(app core.App, config Config) error {
 	}
 
 	p.app.OnAfterBootstrap().Add(func(e *core.BootstrapEvent) error {
-		// always update the app types on start to ensure that
-		// the user has the latest generated declarations
-		if err := p.saveTypesFile(); err != nil {
-			color.Yellow("Unable to save app types file: %v", err)
+		// ensure that the user has the latest types declaration
+		if err := p.refreshTypesFile(); err != nil {
+			color.Yellow("Unable to refresh app types file: %v", err)
 		}
 
 		return nil
@@ -168,6 +182,10 @@ func (p *plugin) registerMigrations() error {
 		vm.Set("migrate", func(up, down func(db dbx.Builder) error) {
 			m.AppMigrations.Register(up, down, file)
 		})
+
+		if p.config.OnInit != nil {
+			p.config.OnInit(vm)
+		}
 
 		_, err := vm.RunString(string(content))
 		if err != nil {
@@ -249,6 +267,10 @@ func (p *plugin) registerHooks() error {
 		vm.Set("$app", p.app)
 		vm.Set("$template", templateRegistry)
 		vm.Set("__hooks", absHooksDir)
+
+		if p.config.OnInit != nil {
+			p.config.OnInit(vm)
+		}
 	}
 
 	// initiliaze the executor vms
@@ -423,8 +445,8 @@ func (p *plugin) relativeTypesPath(basepath string) string {
 	return rel
 }
 
-// saveTypesFile saves the embedded TS declarations as a file on the disk.
-func (p *plugin) saveTypesFile() error {
+// refreshTypesFile saves the embedded TS declarations as a file on the disk.
+func (p *plugin) refreshTypesFile() error {
 	fullPath := p.fullTypesPath()
 
 	// ensure that the types directory exists
@@ -439,11 +461,20 @@ func (p *plugin) saveTypesFile() error {
 		return err
 	}
 
-	if err := os.WriteFile(fullPath, data, 0644); err != nil {
-		return err
+	// read the first timestamp line of the old file (if exists) and compare it to the embedded one
+	// (note: ignore errors to allow always overwriting the file if it is invalid)
+	existingFile, err := os.Open(fullPath)
+	if err == nil {
+		timestamp := make([]byte, 13)
+		io.ReadFull(existingFile, timestamp)
+		existingFile.Close()
+
+		if len(data) >= len(timestamp) && bytes.Equal(data[:13], timestamp) {
+			return nil // nothing new to save
+		}
 	}
 
-	return nil
+	return os.WriteFile(fullPath, data, 0644)
 }
 
 // prependToEmptyFile prepends the specified text to an empty file.

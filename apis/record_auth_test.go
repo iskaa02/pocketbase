@@ -17,6 +17,8 @@ import (
 )
 
 func TestRecordAuthMethodsList(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "missing collection",
@@ -40,6 +42,7 @@ func TestRecordAuthMethodsList(t *testing.T) {
 			ExpectedContent: []string{
 				`"usernamePassword":true`,
 				`"emailPassword":true`,
+				`"onlyVerified":false`,
 				`"authProviders":[{`,
 				`"name":"gitlab"`,
 				`"state":`,
@@ -58,6 +61,7 @@ func TestRecordAuthMethodsList(t *testing.T) {
 			ExpectedContent: []string{
 				`"usernamePassword":false`,
 				`"emailPassword":true`,
+				`"onlyVerified":true`,
 				`"authProviders":[]`,
 			},
 		},
@@ -69,6 +73,8 @@ func TestRecordAuthMethodsList(t *testing.T) {
 }
 
 func TestRecordAuthWithPassword(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "invalid body format",
@@ -212,7 +218,7 @@ func TestRecordAuthWithPassword(t *testing.T) {
 			},
 		},
 		{
-			Name:   "valid email and valid password in allowed collection",
+			Name:   "valid email (unverified) and valid password in allowed collection",
 			Method: http.MethodPost,
 			Url:    "/api/collections/users/auth-with-password",
 			Body: strings.NewReader(`{
@@ -225,6 +231,48 @@ func TestRecordAuthWithPassword(t *testing.T) {
 				`"token":"`,
 				`"id":"4q1xlclmfloku33"`,
 				`"email":"test@example.com"`,
+				`"verified":false`,
+			},
+			ExpectedEvents: map[string]int{
+				"OnRecordBeforeAuthWithPasswordRequest": 1,
+				"OnRecordAfterAuthWithPasswordRequest":  1,
+				"OnRecordAuthRequest":                   1,
+			},
+		},
+
+		// onlyVerified collection check
+		{
+			Name:   "unverified user in onlyVerified collection",
+			Method: http.MethodPost,
+			Url:    "/api/collections/clients/auth-with-password",
+			Body: strings.NewReader(`{
+				"identity":"test2@example.com",
+				"password":"1234567890"
+			}`),
+			ExpectedStatus: 403,
+			ExpectedContent: []string{
+				`"data":{}`,
+			},
+			ExpectedEvents: map[string]int{
+				"OnRecordBeforeAuthWithPasswordRequest": 1,
+				"OnRecordAfterAuthWithPasswordRequest":  1,
+			},
+		},
+		{
+			Name:   "verified user in onlyVerified collection",
+			Method: http.MethodPost,
+			Url:    "/api/collections/clients/auth-with-password",
+			Body: strings.NewReader(`{
+				"identity":"test@example.com",
+				"password":"1234567890"
+			}`),
+			ExpectedStatus: 200,
+			ExpectedContent: []string{
+				`"record":{`,
+				`"token":"`,
+				`"id":"gk390qegs4y47wn"`,
+				`"email":"test@example.com"`,
+				`"verified":true`,
 			},
 			ExpectedEvents: map[string]int{
 				"OnRecordBeforeAuthWithPasswordRequest": 1,
@@ -312,6 +360,8 @@ func TestRecordAuthWithPassword(t *testing.T) {
 }
 
 func TestRecordAuthRefresh(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "unauthorized",
@@ -378,6 +428,41 @@ func TestRecordAuthRefresh(t *testing.T) {
 			},
 		},
 		{
+			Name:   "unverified auth record in onlyVerified collection",
+			Method: http.MethodPost,
+			Url:    "/api/collections/clients/auth-refresh",
+			RequestHeaders: map[string]string{
+				"Authorization": "eyJhbGciOiJIUzI1NiJ9.eyJpZCI6Im8xeTBkZDBzcGQ3ODZtZCIsInR5cGUiOiJhdXRoUmVjb3JkIiwiY29sbGVjdGlvbklkIjoidjg1MXE0cjc5MHJoa25sIiwiZXhwIjoyMjA4OTg1MjYxfQ.-JYlrz5DcGzvb0nYx-xqnSFMu9dupyKY7Vg_FUm0OaM",
+			},
+			ExpectedStatus:  403,
+			ExpectedContent: []string{`"data":{}`},
+			ExpectedEvents: map[string]int{
+				"OnRecordBeforeAuthRefreshRequest": 1,
+				"OnRecordAfterAuthRefreshRequest":  1,
+			},
+		},
+		{
+			Name:   "verified auth record in onlyVerified collection",
+			Method: http.MethodPost,
+			Url:    "/api/collections/clients/auth-refresh",
+			RequestHeaders: map[string]string{
+				"Authorization": "eyJhbGciOiJIUzI1NiJ9.eyJpZCI6ImdrMzkwcWVnczR5NDd3biIsInR5cGUiOiJhdXRoUmVjb3JkIiwiY29sbGVjdGlvbklkIjoidjg1MXE0cjc5MHJoa25sIiwiZXhwIjoyMjA4OTg1MjYxfQ.q34IWXrRWsjLvbbVNRfAs_J4SoTHloNBfdGEiLmy-D8",
+			},
+			ExpectedStatus: 200,
+			ExpectedContent: []string{
+				`"token":`,
+				`"record":`,
+				`"id":"gk390qegs4y47wn"`,
+				`"verified":true`,
+				`"email":"test@example.com"`,
+			},
+			ExpectedEvents: map[string]int{
+				"OnRecordBeforeAuthRefreshRequest": 1,
+				"OnRecordAuthRequest":              1,
+				"OnRecordAfterAuthRefreshRequest":  1,
+			},
+		},
+		{
 			Name:   "OnRecordAfterAuthRefreshRequest error response",
 			Method: http.MethodPost,
 			Url:    "/api/collections/users/auth-refresh?expand=rel,missing",
@@ -404,6 +489,8 @@ func TestRecordAuthRefresh(t *testing.T) {
 }
 
 func TestRecordAuthRequestPasswordReset(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "not an auth collection",
@@ -489,6 +576,8 @@ func TestRecordAuthRequestPasswordReset(t *testing.T) {
 }
 
 func TestRecordAuthConfirmPasswordReset(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:           "empty data",
@@ -555,7 +644,7 @@ func TestRecordAuthConfirmPasswordReset(t *testing.T) {
 			},
 		},
 		{
-			Name:   "valid token and data",
+			Name:   "valid token and data (unverified user)",
 			Method: http.MethodPost,
 			Url:    "/api/collections/users/confirm-password-reset",
 			Body: strings.NewReader(`{
@@ -569,6 +658,132 @@ func TestRecordAuthConfirmPasswordReset(t *testing.T) {
 				"OnModelBeforeUpdate":                       1,
 				"OnRecordBeforeConfirmPasswordResetRequest": 1,
 				"OnRecordAfterConfirmPasswordResetRequest":  1,
+			},
+			BeforeTestFunc: func(t *testing.T, app *tests.TestApp, e *echo.Echo) {
+				user, err := app.Dao().FindAuthRecordByEmail("users", "test@example.com")
+				if err != nil {
+					t.Fatalf("Failed to fetch confirm password user: %v", err)
+				}
+
+				if user.Verified() {
+					t.Fatalf("Expected the user to be unverified")
+				}
+			},
+			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
+				user, err := app.Dao().FindAuthRecordByToken(
+					"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjRxMXhsY2xtZmxva3UzMyIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSIsImNvbGxlY3Rpb25JZCI6Il9wYl91c2Vyc19hdXRoXyIsInR5cGUiOiJhdXRoUmVjb3JkIiwiZXhwIjoyMjA4OTg1MjYxfQ.R_4FOSUHIuJQ5Crl3PpIPCXMsoHzuTaNlccpXg_3FOg",
+					app.Settings().RecordPasswordResetToken.Secret,
+				)
+				if err == nil {
+					t.Fatalf("Expected the password reset token to be invalidated")
+				}
+
+				user, err = app.Dao().FindAuthRecordByEmail("users", "test@example.com")
+				if err != nil {
+					t.Fatalf("Failed to fetch confirm password user: %v", err)
+				}
+
+				if !user.Verified() {
+					t.Fatalf("Expected the user to be marked as verified")
+				}
+			},
+		},
+		{
+			Name:   "valid token and data (unverified user with different email from the one in the token)",
+			Method: http.MethodPost,
+			Url:    "/api/collections/users/confirm-password-reset",
+			Body: strings.NewReader(`{
+				"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjRxMXhsY2xtZmxva3UzMyIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSIsImNvbGxlY3Rpb25JZCI6Il9wYl91c2Vyc19hdXRoXyIsInR5cGUiOiJhdXRoUmVjb3JkIiwiZXhwIjoyMjA4OTg1MjYxfQ.R_4FOSUHIuJQ5Crl3PpIPCXMsoHzuTaNlccpXg_3FOg",
+				"password":"12345678",
+				"passwordConfirm":"12345678"
+			}`),
+			ExpectedStatus: 204,
+			ExpectedEvents: map[string]int{
+				"OnModelAfterUpdate":                        1,
+				"OnModelBeforeUpdate":                       1,
+				"OnRecordBeforeConfirmPasswordResetRequest": 1,
+				"OnRecordAfterConfirmPasswordResetRequest":  1,
+			},
+			BeforeTestFunc: func(t *testing.T, app *tests.TestApp, e *echo.Echo) {
+				user, err := app.Dao().FindAuthRecordByEmail("users", "test@example.com")
+				if err != nil {
+					t.Fatalf("Failed to fetch confirm password user: %v", err)
+				}
+
+				if user.Verified() {
+					t.Fatalf("Expected the user to be unverified")
+				}
+
+				// manually change the email to check whether the verified state will be updated
+				user.SetEmail("test_update@example.com")
+				if err := app.Dao().WithoutHooks().SaveRecord(user); err != nil {
+					t.Fatalf("Failed to update user test email")
+				}
+			},
+			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
+				user, err := app.Dao().FindAuthRecordByToken(
+					"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjRxMXhsY2xtZmxva3UzMyIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSIsImNvbGxlY3Rpb25JZCI6Il9wYl91c2Vyc19hdXRoXyIsInR5cGUiOiJhdXRoUmVjb3JkIiwiZXhwIjoyMjA4OTg1MjYxfQ.R_4FOSUHIuJQ5Crl3PpIPCXMsoHzuTaNlccpXg_3FOg",
+					app.Settings().RecordPasswordResetToken.Secret,
+				)
+				if err == nil {
+					t.Fatalf("Expected the password reset token to be invalidated")
+				}
+
+				user, err = app.Dao().FindAuthRecordByEmail("users", "test_update@example.com")
+				if err != nil {
+					t.Fatalf("Failed to fetch confirm password user: %v", err)
+				}
+
+				if user.Verified() {
+					t.Fatalf("Expected the user to remain unverified")
+				}
+			},
+		},
+		{
+			Name:   "valid token and data (verified user)",
+			Method: http.MethodPost,
+			Url:    "/api/collections/users/confirm-password-reset",
+			Body: strings.NewReader(`{
+				"token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjRxMXhsY2xtZmxva3UzMyIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSIsImNvbGxlY3Rpb25JZCI6Il9wYl91c2Vyc19hdXRoXyIsInR5cGUiOiJhdXRoUmVjb3JkIiwiZXhwIjoyMjA4OTg1MjYxfQ.R_4FOSUHIuJQ5Crl3PpIPCXMsoHzuTaNlccpXg_3FOg",
+				"password":"12345678",
+				"passwordConfirm":"12345678"
+			}`),
+			ExpectedStatus: 204,
+			ExpectedEvents: map[string]int{
+				"OnModelAfterUpdate":                        1,
+				"OnModelBeforeUpdate":                       1,
+				"OnRecordBeforeConfirmPasswordResetRequest": 1,
+				"OnRecordAfterConfirmPasswordResetRequest":  1,
+			},
+			BeforeTestFunc: func(t *testing.T, app *tests.TestApp, e *echo.Echo) {
+				user, err := app.Dao().FindAuthRecordByEmail("users", "test@example.com")
+				if err != nil {
+					t.Fatalf("Failed to fetch confirm password user: %v", err)
+				}
+
+				// ensure that the user is already verified
+				user.SetVerified(true)
+				if err := app.Dao().WithoutHooks().SaveRecord(user); err != nil {
+					t.Fatalf("Failed to update user verified state")
+				}
+			},
+			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
+				user, err := app.Dao().FindAuthRecordByToken(
+					"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjRxMXhsY2xtZmxva3UzMyIsImVtYWlsIjoidGVzdEBleGFtcGxlLmNvbSIsImNvbGxlY3Rpb25JZCI6Il9wYl91c2Vyc19hdXRoXyIsInR5cGUiOiJhdXRoUmVjb3JkIiwiZXhwIjoyMjA4OTg1MjYxfQ.R_4FOSUHIuJQ5Crl3PpIPCXMsoHzuTaNlccpXg_3FOg",
+					app.Settings().RecordPasswordResetToken.Secret,
+				)
+				if err == nil {
+					t.Fatalf("Expected the password reset token to be invalidated")
+				}
+
+				user, err = app.Dao().FindAuthRecordByEmail("users", "test@example.com")
+				if err != nil {
+					t.Fatalf("Failed to fetch confirm password user: %v", err)
+				}
+
+				if !user.Verified() {
+					t.Fatalf("Expected the user to remain verified")
+				}
 			},
 		},
 		{
@@ -602,6 +817,8 @@ func TestRecordAuthConfirmPasswordReset(t *testing.T) {
 }
 
 func TestRecordAuthRequestVerification(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "not an auth collection",
@@ -695,6 +912,8 @@ func TestRecordAuthRequestVerification(t *testing.T) {
 }
 
 func TestRecordAuthConfirmVerification(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:           "empty data",
@@ -823,6 +1042,8 @@ func TestRecordAuthConfirmVerification(t *testing.T) {
 }
 
 func TestRecordAuthRequestEmailChange(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "unauthorized",
@@ -898,7 +1119,7 @@ func TestRecordAuthRequestEmailChange(t *testing.T) {
 			ExpectedStatus: 400,
 			ExpectedContent: []string{
 				`"data":`,
-				`"newEmail":{"code":"validation_record_email_exists"`,
+				`"newEmail":{"code":"validation_record_email_invalid"`,
 			},
 		},
 		{
@@ -925,6 +1146,8 @@ func TestRecordAuthRequestEmailChange(t *testing.T) {
 }
 
 func TestRecordAuthConfirmEmailChange(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:           "not an auth collection",
@@ -1045,6 +1268,8 @@ func TestRecordAuthConfirmEmailChange(t *testing.T) {
 }
 
 func TestRecordAuthListExternalsAuths(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "unauthorized",
@@ -1145,6 +1370,8 @@ func TestRecordAuthListExternalsAuths(t *testing.T) {
 }
 
 func TestRecordAuthUnlinkExternalsAuth(t *testing.T) {
+	t.Parallel()
+
 	scenarios := []tests.ApiScenario{
 		{
 			Name:            "unauthorized",
@@ -1274,114 +1501,207 @@ func TestRecordAuthUnlinkExternalsAuth(t *testing.T) {
 }
 
 func TestRecordAuthOAuth2Redirect(t *testing.T) {
-	c1 := subscriptions.NewDefaultClient()
+	t.Parallel()
 
-	c2 := subscriptions.NewDefaultClient()
-	c2.Subscribe("@oauth2")
+	clientStubs := make([]map[string]subscriptions.Client, 0, 10)
 
-	c3 := subscriptions.NewDefaultClient()
-	c3.Subscribe("test1", "@oauth2")
+	for i := 0; i < 10; i++ {
+		c1 := subscriptions.NewDefaultClient()
 
-	c4 := subscriptions.NewDefaultClient()
-	c4.Subscribe("test1", "test2")
+		c2 := subscriptions.NewDefaultClient()
+		c2.Subscribe("@oauth2")
 
-	c5 := subscriptions.NewDefaultClient()
-	c5.Subscribe("@oauth2")
-	c5.Discard()
+		c3 := subscriptions.NewDefaultClient()
+		c3.Subscribe("test1", "@oauth2")
 
-	beforeTestFunc := func(t *testing.T, app *tests.TestApp, e *echo.Echo) {
-		app.SubscriptionsBroker().Register(c1)
-		app.SubscriptionsBroker().Register(c2)
-		app.SubscriptionsBroker().Register(c3)
-		app.SubscriptionsBroker().Register(c4)
-		app.SubscriptionsBroker().Register(c5)
+		c4 := subscriptions.NewDefaultClient()
+		c4.Subscribe("test1", "test2")
+
+		c5 := subscriptions.NewDefaultClient()
+		c5.Subscribe("@oauth2")
+		c5.Discard()
+
+		clientStubs = append(clientStubs, map[string]subscriptions.Client{
+			"c1": c1,
+			"c2": c2,
+			"c3": c3,
+			"c4": c4,
+			"c5": c5,
+		})
+	}
+
+	checkFailureRedirect := func(t *testing.T, app *tests.TestApp, res *http.Response) {
+		loc := res.Header.Get("Location")
+		if !strings.Contains(loc, "/oauth2-redirect-failure") {
+			t.Fatalf("Expected failure redirect, got %q", loc)
+		}
+	}
+
+	checkSuccessRedirect := func(t *testing.T, app *tests.TestApp, res *http.Response) {
+		loc := res.Header.Get("Location")
+		if !strings.Contains(loc, "/oauth2-redirect-success") {
+			t.Fatalf("Expected success redirect, got %q", loc)
+		}
+	}
+
+	checkClientMessages := func(t *testing.T, clientId string, msg subscriptions.Message, expectedMessages map[string][]string) {
+		if len(expectedMessages[clientId]) == 0 {
+			t.Fatalf("Unexpected client %q message, got %s:\n%s", clientId, msg.Name, msg.Data)
+		}
+
+		if msg.Name != "@oauth2" {
+			t.Fatalf("Expected @oauth2 msg.Name, got %q", msg.Name)
+		}
+
+		for _, txt := range expectedMessages[clientId] {
+			if !strings.Contains(string(msg.Data), txt) {
+				t.Fatalf("Failed to find %q in \n%s", txt, msg.Data)
+			}
+		}
+	}
+
+	beforeTestFunc := func(
+		clients map[string]subscriptions.Client,
+		expectedMessages map[string][]string,
+	) func(*testing.T, *tests.TestApp, *echo.Echo) {
+		return func(t *testing.T, app *tests.TestApp, e *echo.Echo) {
+			for _, client := range clients {
+				app.SubscriptionsBroker().Register(client)
+			}
+
+			ctx, cancelFunc := context.WithTimeout(context.Background(), 100*time.Millisecond)
+
+			// add to the app store so that it can be cancelled manually after test completion
+			app.Store().Set("cancelFunc", cancelFunc)
+
+			go func() {
+				defer cancelFunc()
+
+				for {
+					select {
+					case msg := <-clients["c1"].Channel():
+						checkClientMessages(t, "c1", msg, expectedMessages)
+					case msg := <-clients["c2"].Channel():
+						checkClientMessages(t, "c2", msg, expectedMessages)
+					case msg := <-clients["c3"].Channel():
+						checkClientMessages(t, "c3", msg, expectedMessages)
+					case msg := <-clients["c4"].Channel():
+						checkClientMessages(t, "c4", msg, expectedMessages)
+					case msg := <-clients["c5"].Channel():
+						checkClientMessages(t, "c5", msg, expectedMessages)
+					case <-ctx.Done():
+						for _, c := range clients {
+							close(c.Channel())
+						}
+						return
+					}
+				}
+			}()
+		}
 	}
 
 	scenarios := []tests.ApiScenario{
 		{
-			Name:            "no state query param",
-			Method:          http.MethodGet,
-			Url:             "/api/oauth2-redirect?code=123",
-			ExpectedStatus:  400,
-			ExpectedContent: []string{`"data":{}`},
+			Name:           "no state query param",
+			Method:         http.MethodGet,
+			Url:            "/api/oauth2-redirect?code=123",
+			BeforeTestFunc: beforeTestFunc(clientStubs[0], nil),
+			ExpectedStatus: http.StatusTemporaryRedirect,
+			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
+				app.Store().Get("cancelFunc").(context.CancelFunc)()
+
+				checkFailureRedirect(t, app, res)
+			},
 		},
 		{
-			Name:            "no code query param",
-			Method:          http.MethodGet,
-			Url:             "/api/oauth2-redirect?state=" + c3.Id(),
-			ExpectedStatus:  400,
-			ExpectedContent: []string{`"data":{}`},
+			Name:           "invalid or missing client",
+			Method:         http.MethodGet,
+			Url:            "/api/oauth2-redirect?code=123&state=missing",
+			BeforeTestFunc: beforeTestFunc(clientStubs[1], nil),
+			ExpectedStatus: http.StatusTemporaryRedirect,
+			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
+				app.Store().Get("cancelFunc").(context.CancelFunc)()
+
+				checkFailureRedirect(t, app, res)
+			},
 		},
 		{
-			Name:            "missing client",
-			Method:          http.MethodGet,
-			Url:             "/api/oauth2-redirect?code=123&state=missing",
-			ExpectedStatus:  404,
-			ExpectedContent: []string{`"data":{}`},
+			Name:   "no code query param",
+			Method: http.MethodGet,
+			Url:    "/api/oauth2-redirect?state=" + clientStubs[2]["c3"].Id(),
+			BeforeTestFunc: beforeTestFunc(clientStubs[2], map[string][]string{
+				"c3": {`"state":"` + clientStubs[2]["c3"].Id(), `"code":""`},
+			}),
+			ExpectedStatus: http.StatusTemporaryRedirect,
+			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
+				app.Store().Get("cancelFunc").(context.CancelFunc)()
+
+				checkFailureRedirect(t, app, res)
+
+				if clientStubs[2]["c3"].HasSubscription("@oauth2") {
+					t.Fatalf("Expected oauth2 subscription to be removed")
+				}
+			},
 		},
 		{
-			Name:            "discarded client with @oauth2 subscription",
-			Method:          http.MethodGet,
-			Url:             "/api/oauth2-redirect?code=123&state=" + c5.Id(),
-			BeforeTestFunc:  beforeTestFunc,
-			ExpectedStatus:  404,
-			ExpectedContent: []string{`"data":{}`},
+			Name:   "error query param",
+			Method: http.MethodGet,
+			Url:    "/api/oauth2-redirect?error=example&code=123&state=" + clientStubs[3]["c3"].Id(),
+			BeforeTestFunc: beforeTestFunc(clientStubs[3], map[string][]string{
+				"c3": {`"state":"` + clientStubs[3]["c3"].Id(), `"code":"123"`, `"error":"example"`},
+			}),
+			ExpectedStatus: http.StatusTemporaryRedirect,
+			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
+				app.Store().Get("cancelFunc").(context.CancelFunc)()
+
+				checkFailureRedirect(t, app, res)
+
+				if clientStubs[3]["c3"].HasSubscription("@oauth2") {
+					t.Fatalf("Expected oauth2 subscription to be removed")
+				}
+			},
 		},
 		{
-			Name:            "client without @oauth2 subscription",
-			Method:          http.MethodGet,
-			Url:             "/api/oauth2-redirect?code=123&state=" + c4.Id(),
-			BeforeTestFunc:  beforeTestFunc,
-			ExpectedStatus:  404,
-			ExpectedContent: []string{`"data":{}`},
+			Name:           "discarded client with @oauth2 subscription",
+			Method:         http.MethodGet,
+			Url:            "/api/oauth2-redirect?code=123&state=" + clientStubs[4]["c5"].Id(),
+			BeforeTestFunc: beforeTestFunc(clientStubs[4], nil),
+			ExpectedStatus: http.StatusTemporaryRedirect,
+			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
+				app.Store().Get("cancelFunc").(context.CancelFunc)()
+
+				checkFailureRedirect(t, app, res)
+			},
+		},
+		{
+			Name:           "client without @oauth2 subscription",
+			Method:         http.MethodGet,
+			Url:            "/api/oauth2-redirect?code=123&state=" + clientStubs[4]["c4"].Id(),
+			BeforeTestFunc: beforeTestFunc(clientStubs[5], nil),
+			ExpectedStatus: http.StatusTemporaryRedirect,
+			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
+				app.Store().Get("cancelFunc").(context.CancelFunc)()
+
+				checkFailureRedirect(t, app, res)
+			},
 		},
 		{
 			Name:   "client with @oauth2 subscription",
 			Method: http.MethodGet,
-			Url:    "/api/oauth2-redirect?code=123&state=" + c3.Id(),
-			BeforeTestFunc: func(t *testing.T, app *tests.TestApp, e *echo.Echo) {
-				beforeTestFunc(t, app, e)
-
-				ctx, cancelFunc := context.WithTimeout(context.Background(), 1*time.Second)
-
-				go func() {
-					defer cancelFunc()
-				L:
-					for {
-						select {
-						case <-c1.Channel():
-							t.Error("Unexpected c1 message")
-							break L
-						case <-c2.Channel():
-							t.Error("Unexpected c2 message")
-							break L
-						case msg := <-c3.Channel():
-							if msg.Name != "@oauth2" {
-								t.Errorf("Expected @oauth2 msg.Name, got %q", msg.Name)
-							}
-
-							expectedParams := []string{`"state"`, `"code"`}
-							for _, p := range expectedParams {
-								if !strings.Contains(string(msg.Data), p) {
-									t.Errorf("Couldn't find %s in \n%v", p, msg.Data)
-								}
-							}
-
-							break L
-						case <-c4.Channel():
-							t.Error("Unexpected c4 message")
-							break L
-						case <-c5.Channel():
-							t.Error("Unexpected c5 message")
-							break L
-						case <-ctx.Done():
-							t.Error("Context timeout reached")
-							break L
-						}
-					}
-				}()
-			},
+			Url:    "/api/oauth2-redirect?code=123&state=" + clientStubs[6]["c3"].Id(),
+			BeforeTestFunc: beforeTestFunc(clientStubs[6], map[string][]string{
+				"c3": {`"state":"` + clientStubs[6]["c3"].Id(), `"code":"123"`},
+			}),
 			ExpectedStatus: http.StatusTemporaryRedirect,
+			AfterTestFunc: func(t *testing.T, app *tests.TestApp, res *http.Response) {
+				app.Store().Get("cancelFunc").(context.CancelFunc)()
+
+				checkSuccessRedirect(t, app, res)
+
+				if clientStubs[6]["c3"].HasSubscription("@oauth2") {
+					t.Fatalf("Expected oauth2 subscription to be removed")
+				}
+			},
 		},
 	}
 
